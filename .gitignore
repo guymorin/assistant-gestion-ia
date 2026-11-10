@@ -1,0 +1,34 @@
+# Données RH et dérivés d'indexation (confidentiel)
+DRH/
+chroma_db/
+.cache/
+
+# Secrets et configuration locale
+.streamlit/secrets.toml
+.env
+.env.*
+*.key
+*.pem
+
+# Pièces jointes, exports, sauvegardes, journaux
+uploads/
+pieces_jointes/
+exports/
+backups/
+logs/
+*.log
+*.bak
+*.sqlite3
+*.db
+
+# Python / outillage
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.DS_Store
+Thumbs.db

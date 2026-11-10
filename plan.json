@@ -1,0 +1,137 @@
+{
+  "projet": "Application RH locale - pipeline d'ingestion RAG",
+  "version": "1.0",
+  "statut": "termine - 23 tests unitaires et 3 tests d'integration verts - 15619 chunks indexes dans ./chroma_db (202 Mo) - recherche semantique verifiee",
+  "objectif": "Construire ingest.py : charger les PDF et les pages web RH, les decouper, les vectoriser avec Ollama et les persister dans ChromaDB.",
+  "stack": {
+    "orchestration": "LangChain",
+    "base_vectorielle": "ChromaDB (persist_directory=./chroma_db)",
+    "embeddings": "Ollama / nomic-embed-text (http://127.0.0.1:11434)",
+    "tests": "pytest"
+  },
+  "entrees": {
+    "pdf": {
+      "chemin": "./DRH",
+      "chargeur": "PyPDFDirectoryLoader"
+    },
+    "web": {
+      "chemin": "./DRH/DRH-web.txt",
+      "chargeur": "WebBaseLoader",
+      "regles": [
+        "ignorer les lignes vides",
+        "ignorer les lignes commencant par #",
+        "conserver l'ordre du fichier",
+        "une URL en echec ne doit pas interrompre les autres"
+      ]
+    }
+  },
+  "sortie": {
+    "chemin": "./chroma_db",
+    "collection": "par defaut (langchain)"
+  },
+  "cache_pdf": {
+    "objectif": "Eviter de reparser les 6 PDF (dont 46 Mo) a chaque ingestion.",
+    "dossier": "./.cache/pdf",
+    "cle": "SHA-256 du nom, de la taille et du mtime de chaque PDF du dossier",
+    "format": "JSON (page_content + metadata), ecriture atomique",
+    "invalidation": "automatique si un PDF est modifie, ajoute ou supprime",
+    "comportement": "best-effort : un cache illisible ou non inscriptible est ignore sans bloquer l'ingestion"
+  },
+  "decoupage": {
+    "splitter": "RecursiveCharacterTextSplitter",
+    "chunk_size": 1000,
+    "chunk_overlap": 200,
+    "length_function": "len",
+    "separateurs_juridiques": [
+      "\\n\\nArticle ",
+      "\\n\\nARTICLE ",
+      "\\n\\nChapitre ",
+      "\\n\\nTitre ",
+      "\\n\\nSection ",
+      "\\n\\n",
+      "\\n",
+      ". ",
+      " ",
+      ""
+    ]
+  },
+  "architecture": {
+    "principe": "Fonctions courtes, responsabilite unique, imports paresseux et injection de dependances pour permettre des tests unitaires sans reseau ni Ollama.",
+    "api_publique": [
+      "lire_urls(chemin=URLS_FILE) -> list[str]",
+      "charger_pdf(dossier=PDF_DIR, loader_factory=None, cache_dir=None) -> list",
+      "charger_web(urls, loader_factory=None) -> list",
+      "construire_splitter() -> RecursiveCharacterTextSplitter",
+      "decouper_documents(documents, splitter=None) -> list",
+      "creer_embeddings() -> OllamaEmbeddings",
+      "creer_vectorstore(chunks, embeddings, persist_directory=CHROMA_DIR, store_factory=None)",
+      "ingerer(pdf_dir, urls_file, chroma_dir, ..., cache_dir=None) -> int (nombre de chunks indexes)",
+      "main() -> int (code de sortie)"
+    ],
+    "constantes": {
+      "PDF_DIR": "./DRH",
+      "URLS_FILE": "./DRH/DRH-web.txt",
+      "CHROMA_DIR": "./chroma_db",
+      "PDF_CACHE_DIR": "./.cache/pdf",
+      "EMBEDDING_MODEL": "nomic-embed-text",
+      "OLLAMA_BASE_URL": "http://127.0.0.1:11434"
+    }
+  },
+  "tdd": {
+    "phase_courante": "GREEN",
+    "tests_unitaires": [
+      "lire_urls ignore commentaires et lignes vides",
+      "lire_urls leve une erreur explicite si le fichier est absent",
+      "charger_pdf utilise le dossier ./DRH",
+      "charger_pdf retourne les documents du loader",
+      "charger_web charge chaque URL",
+      "charger_web continue apres une URL en echec",
+      "decouper_documents delegue au splitter injecte",
+      "construire_splitter est configure pour le juridique",
+      "creer_embeddings utilise nomic-embed-text et l'API Ollama locale",
+      "creer_vectorstore transmet documents, embeddings et dossier de persistance",
+      "ingerer fusionne PDF et web puis vectorise",
+      "ingerer s'arrete proprement si aucun document",
+      "les chemins par defaut correspondent au plan",
+      "sans cache, le loader est appele a chaque fois",
+      "le cache PDF est ecrit apres la premiere extraction",
+      "le cache evite de relancer le loader",
+      "le cache est invalide si un PDF change",
+      "le cache est invalide si un PDF est ajoute",
+      "un cache illisible est regenere",
+      "main active le cache PDF par defaut",
+      "main traduit le nombre de morceaux en code de sortie",
+      "main retourne 1 si l'ingestion echoue"
+    ],
+    "tests_integration": [
+      "les PDF reels de ./DRH sont chargeables",
+      "Ollama produit un vecteur pour nomic-embed-text",
+      "ChromaDB persiste puis retrouve un document"
+    ]
+  },
+  "dependances_pip": {
+    "runtime": [
+      "langchain>=0.3",
+      "langchain-community>=0.3",
+      "langchain-text-splitters>=0.3",
+      "langchain-ollama>=0.2",
+      "langchain-chroma>=0.2",
+      "chromadb>=0.5",
+      "pypdf>=5.0",
+      "beautifulsoup4>=4.12",
+      "requests>=2.31"
+    ],
+    "dev": [
+      "pytest>=8.0"
+    ]
+  },
+  "etapes": [
+    "1. Brainstorming et planification (fait)",
+    "2. Ecriture des tests TDD et verification du rouge (fait)",
+    "3. Validation du rouge par l'utilisateur (fait)",
+    "4. Reecriture de ingest.py en phase GREEN (fait)",
+    "5. Cache PDF ajoute en TDD (fait, 23 tests unitaires verts)",
+    "6. Verification integration Ollama et ChromaDB (fait)",
+    "7. Ingestion reelle : 15619 chunks dans ./chroma_db et recherche semantique verifiee (fait)"
+  ]
+}

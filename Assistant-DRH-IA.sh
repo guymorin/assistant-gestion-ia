@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# Lanceur de l'application Assistant DRH - IA.
+# Démarre Ollama si nécessaire, lance Streamlit puis ouvre l'onglet
+# du navigateur sur l'application.
+#
+# Usage :
+#   ./Assistant-DRH-IA.sh              # port 8501
+#   ASSISTANT_DRH_PORT=8502 ./Assistant-DRH-IA.sh
+
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+cd "$SCRIPT_DIR" || exit 1
+
+PORT="${ASSISTANT_DRH_PORT:-8501}"
+URL="http://localhost:${PORT}"
+OLLAMA_URL="http://127.0.0.1:11434"
+OLLAMA_LOG="/tmp/ollama-assistant-drh.log"
+
+open_browser() {
+    local url="$1"
+    if command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$url" >/dev/null 2>&1 &
+    elif command -v open >/dev/null 2>&1; then
+        open "$url" >/dev/null 2>&1 &
+    elif command -v sensible-browser >/dev/null 2>&1; then
+        sensible-browser "$url" >/dev/null 2>&1 &
+    else
+        echo "Ouvrez manuellement l'adresse : $url"
+    fi
+}
+
+# --- Vérifications ---------------------------------------------------------
+
+if [[ ! -x .venv/bin/python ]]; then
+    echo "Erreur : environnement .venv introuvable dans $SCRIPT_DIR" >&2
+    echo "Créez-le avec :" >&2
+    echo "  python3.12 -m venv .venv" >&2
+    echo "  .venv/bin/python -m pip install -r requirements-dev.txt" >&2
+    exit 1
+fi
+
+if [[ ! -f chroma_db/chroma.sqlite3 ]]; then
+    echo "Attention : base vectorielle absente (chroma_db/chroma.sqlite3)." >&2
+    echo "Construisez-la avec : .venv/bin/python ingest.py" >&2
+fi
+
+# --- Ollama ----------------------------------------------------------------
+
+if ! curl -fsS --max-time 2 "$OLLAMA_URL/api/tags" >/dev/null 2>&1; then
+    if command -v ollama >/dev/null 2>&1; then
+        echo "Ollama n'est pas joignable, démarrage..."
+        nohup ollama serve >"$OLLAMA_LOG" 2>&1 &
+        for _ in $(seq 1 30); do
+            curl -fsS --max-time 1 "$OLLAMA_URL/api/tags" >/dev/null 2>&1 && break
+            sleep 0.5
+        done
+        if ! curl -fsS --max-time 1 "$OLLAMA_URL/api/tags" >/dev/null 2>&1; then
+            echo "Erreur : impossible de démarrer Ollama (voir $OLLAMA_LOG)." >&2
+            exit 1
+        fi
+    else
+        echo "Erreur : ollama est introuvable. Lancez 'ollama serve' manuellement." >&2
+        exit 1
+    fi
+fi
+
+# --- Application déjà lancée ? --------------------------------------------
+
+if curl -fsS --max-time 1 "$URL/_stcore/health" >/dev/null 2>&1; then
+    echo "L'application est déjà lancée : $URL"
+    open_browser "$URL"
+    exit 0
+fi
+
+# --- Lancement de Streamlit ------------------------------------------------
+
+echo "Démarrage de Streamlit sur $URL..."
+.venv/bin/python -m streamlit run app.py \
+    --server.port "$PORT" \
+    --server.headless true \
+    --browser.gatherUsageStats false &
+APP_PID=$!
+
+cleanup() {
+    if kill -0 "$APP_PID" 2>/dev/null; then
+        kill "$APP_PID" 2>/dev/null
+        wait "$APP_PID" 2>/dev/null
+    fi
+}
+trap cleanup EXIT INT TERM
+
+# Attente de la disponibilité du serveur (max ~30 s)
+READY=0
+for _ in $(seq 1 60); do
+    if curl -fsS --max-time 1 "$URL/_stcore/health" >/dev/null 2>&1; then
+        READY=1
+        break
+    fi
+    if ! kill -0 "$APP_PID" 2>/dev/null; then
+        echo "Erreur : Streamlit s'est arrêté avant d'être disponible." >&2
+        exit 1
+    fi
+    sleep 0.5
+done
+
+if [[ "$READY" -eq 0 ]]; then
+    echo "Erreur : le serveur n'a pas répondu dans le délai imparti." >&2
+    exit 1
+fi
+
+open_browser "$URL"
+
+echo "Application disponible : $URL"
+echo "Appuyez sur Ctrl+C pour arrêter."
+wait "$APP_PID"

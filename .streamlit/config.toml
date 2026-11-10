@@ -1,0 +1,17 @@
+[client]
+# Masque les outils developpeur de Streamlit (Deploy, Rerun, Clear cache)
+# tout en conservant les options spectateur (theme, impression, a propos).
+toolbarMode = "viewer"
+
+# Un theme personnalise est necessaire pour le vert de la marque. Streamlit
+# ne propose le selecteur Systeme / Clair / Sombre que si les variantes
+# claire et sombre sont explicitement definies : sans [theme.light] et
+# [theme.dark], l'option d'affichage disparait du menu.
+[theme]
+primaryColor = "rgb(66, 207, 80)"
+
+[theme.light]
+primaryColor = "rgb(66, 207, 80)"
+
+[theme.dark]
+primaryColor = "rgb(66, 207, 80)"

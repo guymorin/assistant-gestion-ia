@@ -1,0 +1,187 @@
+{
+  "projet": "Assistant DRH - IA (interface Streamlit du RAG RH)",
+  "version": "1.0",
+  "statut": "termine - 67 tests unitaires verts - flux complet valide via AppTest (reponse 35 h + 4 sources) - streamlit 1.67.0 installe",
+  "objectif": "Fournir une interface web locale Streamlit permettant d'interroger en langage naturel la base documentaire RH deja indexee dans ./chroma_db, avec une reponse generee par llama3.2 et l'affichage des sources utilisees.",
+  "contexte_existant": {
+    "pipeline_ingestion": "ingest.py termine et valide (23 tests unitaires + 3 tests d'integration)",
+    "base_vectorielle": "./chroma_db (202 Mo, 15619 chunks, chroma.sqlite3)",
+    "embeddings": "nomic-embed-text via Ollama local (http://127.0.0.1:11434)",
+    "llm_disponible": "llama3.2:latest (Ollama local)",
+    "metadonnees_disponibles": [
+      "source (chemin du PDF ou URL)",
+      "page (index 0-based)",
+      "page_label (numero de page lisible)",
+      "title (titre du document)"
+    ]
+  },
+  "criteres_de_succes": [
+    "streamlit run app.py ouvre la page 'Assistant DRH - IA'",
+    "Une question RH produit une reponse en francais fondee sur ./chroma_db",
+    "Les documents utilises (PDF avec page, ou URL) sont affiches sous la reponse, sans doublon",
+    "L'historique de la conversation reste visible apres chaque interaction",
+    "Si ChromaDB ou Ollama est indisponible, un message d'erreur explicite s'affiche (pas de traceback)",
+    "Les tests unitaires passent sans reseau, sans Ollama et sans Streamlit lance"
+  ],
+  "perimetre": {
+    "inclus": [
+      "Page Streamlit unique (app.py)",
+      "Chargement de la base ChromaDB existante ./chroma_db",
+      "Recherche semantique top-k sur la question de l'utilisateur",
+      "Generation de la reponse avec llama3.2 via ChatOllama",
+      "Historique de conversation de type chat dans st.session_state",
+      "Affichage des sources (nom du PDF + page, ou URL)",
+      "Bouton 'Effacer la conversation' dans la barre laterale",
+      "Gestion explicite des erreurs ChromaDB / Ollama"
+    ],
+    "exclu": [
+      "Streaming token par token",
+      "Memoire conversationnelle envoyee au LLM (v1 : historique affiche seulement)",
+      "Reecriture automatique des questions de suivi",
+      "Authentification et gestion multi-utilisateurs",
+      "Persistance de l'historique hors session",
+      "Deploiement distant / Docker",
+      "Reingestion depuis l'interface"
+    ]
+  },
+  "hypotheses_a_confirmer": [
+    "L'historique est affiche mais chaque question est traitee independamment (pas de memoire envoyee au LLM).",
+    "TOP_K = 4 chunks de contexte par question.",
+    "Le plan de cette phase est consigne dans plan-app.json ; plan.json reste le plan de l'ingestion."
+  ],
+  "stack": {
+    "ui": "Streamlit",
+    "orchestration": "LangChain 1.x (LCEL / appels directs, pas de chains historiques)",
+    "base_vectorielle": "ChromaDB (./chroma_db) via langchain-chroma",
+    "embeddings": "OllamaEmbeddings / nomic-embed-text",
+    "llm": "ChatOllama / llama3.2",
+    "tests": "pytest"
+  },
+  "architecture": {
+    "principe": "Un seul fichier app.py : fonctions pures et testables d'un cote, interface Streamlit mince de l'autre. Les dependances externes (vectorstore, LLM) sont injectables pour les tests. Reutilisation des constantes et de creer_embeddings() de ingest.py pour eviter la duplication.",
+    "fichiers": {
+      "app.py": "a creer - logique RAG + interface Streamlit",
+      "tests/test_app.py": "a creer - tests unitaires et d'integration",
+      "requirements.txt": "a modifier - ajout de streamlit",
+      "plan-app.json": "ce fichier de planification"
+    },
+    "constantes": {
+      "CHROMA_DIR": "./chroma_db",
+      "EMBEDDING_MODEL": "nomic-embed-text",
+      "OLLAMA_BASE_URL": "http://127.0.0.1:11434",
+      "LLM_MODEL": "llama3.2",
+      "TOP_K": 4,
+      "LLM_TEMPERATURE": 0.1,
+      "LLM_NUM_CTX": 8192
+    },
+    "api_publique": [
+      "creer_vectorstore(persist_directory=CHROMA_DIR, embeddings=None) -> Chroma",
+      "creer_llm(model=LLM_MODEL, base_url=OLLAMA_BASE_URL, temperature=LLM_TEMPERATURE) -> ChatOllama",
+      "rechercher(question, vectorstore, k=TOP_K) -> list[Document]",
+      "nommer_source(metadata) -> str",
+      "extraire_sources(documents) -> list[dict]",
+      "construire_contexte(documents) -> str",
+      "construire_prompt(question, documents) -> str",
+      "repondre(question, vectorstore, llm, k=TOP_K) -> dict {reponse, sources}",
+      "main() -> None"
+    ],
+    "flux": [
+      "1. L'utilisateur saisit une question dans st.chat_input.",
+      "2. rechercher(question) interroge ChromaDB (similarity_search, k=4).",
+      "3. construire_prompt(question, documents) numerote les extraits et leurs sources.",
+      "4. ChatOllama.invoke(prompt) genere la reponse.",
+      "5. extraire_sources(documents) deduit les sources uniques.",
+      "6. La reponse et ses sources sont ajoutees a st.session_state.messages puis affichees."
+    ],
+    "cache": "st.cache_resource sur creer_vectorstore et creer_llm pour ne pas recharger la base a chaque interaction."
+  },
+  "retrieval": {
+    "methode": "Chroma.similarity_search(question, k=TOP_K)",
+    "top_k": 4,
+    "pas_de_filtre_metadata": "v1 : recherche sur l'ensemble de la collection",
+    "aucun_resultat": "Si la liste est vide, repondre sans appeler le LLM : 'Je ne trouve pas cette information dans la base documentaire.'"
+  },
+  "prompt": {
+    "langue": "francais",
+    "template": "Tu es l'assistant RH de la direction des ressources humaines. Reponds en francais, de facon claire, concise et structuree.\n\nRegles :\n- Utilise uniquement le CONTEXTE ci-dessous.\n- Si le contexte ne contient pas la reponse, dis-le explicitement et propose de reformuler la question.\n- N'invente aucune information juridique.\n- Cite les sources avec leur numero entre crochets, par exemple [1].\n\nCONTEXTE :\n{contexte}\n\nQUESTION : {question}\n\nREPONSE :",
+    "format_contexte": "[n] Source : <nom du document>\n<extrait>\n\n(blocs numerotes dans l'ordre de pertinence)"
+  },
+  "sources": {
+    "pdf": "nom du fichier + page : referentiel_gestion_des_ressources_humaines.pdf (p. 1)",
+    "web": "URL complete issue de metadata['source']",
+    "deduplication": "par couple (source, page), en conservant l'ordre de pertinence",
+    "affichage": "liste a puces visible sous la reponse ; extraits de contexte dans un st.expander optionnel",
+    "objectif": "tracabilite : l'utilisateur voit quels documents ont fonde la reponse"
+  },
+  "ui": {
+    "page_config": {
+      "page_title": "Assistant DRH - IA",
+      "page_icon": "briefcase",
+      "layout": "centered"
+    },
+    "structure": [
+      "Titre 'Assistant DRH - IA' + sous-titre discret",
+      "Zone de chat avec st.chat_message pour chaque tour",
+      "Champ de saisie st.chat_input en bas",
+      "Barre laterale : modele LLM, modele d'embedding, nombre de chunks, bouton 'Effacer la conversation'"
+    ],
+    "etat": "st.session_state.messages = list[{role, content, sources}]",
+    "style": "CSS minimal injecte : largeur de lecture ~820 px, typographie sobre, palette neutre",
+    "feedback": "st.spinner('Recherche dans la base RH...') pendant le retrieval + generation"
+  },
+  "gestion_erreurs": [
+    "Dossier ./chroma_db absent ou vide : st.error avec consigne 'lancez python ingest.py'",
+    "Ollama injoignable : st.error 'Ollama ne repond pas sur http://127.0.0.1:11434'",
+    "Erreur pendant la generation : st.error avec le message, la conversation reste utilisable",
+    "Question vide ou composee d'espaces : ignoree"
+  ],
+  "tdd": {
+    "phase_courante": "GREEN termine : 16/16 tests unitaires verts, 2/2 tests d'integration verts, flux Streamlit complet valide",
+    "tests_unitaires": [
+      "nommer_source formate un PDF avec son numero de page",
+      "nommer_source retourne l'URL pour une source web",
+      "nommer_source degrade proprement si les metadonnees sont absentes",
+      "extraire_sources deduplique les doublons en conservant l'ordre",
+      "construire_contexte numerote les extraits a partir de 1",
+      "construire_contexte inclut le nom de chaque source",
+      "construire_prompt contient la question, le contexte et la consigne anti-hallucination",
+      "rechercher transmet la question et k au vectorstore",
+      "repondre sans document retourne le message d'absence et n'appelle pas le LLM",
+      "repondre avec documents transmet le prompt au LLM et retourne ses sources",
+      "les constantes par defaut correspondent au plan"
+    ],
+    "tests_integration": [
+      "la base ./chroma_db repond a une question RH connue",
+      "llama3.2 genere une reponse non vide a partir du contexte reel",
+      "les sources retournees contiennent au moins un PDF ou une URL"
+    ],
+    "commande": ".venv/bin/python -m pytest -q (integration : -m integration)"
+  },
+  "dependances_pip": {
+    "nouvelle": [
+      "streamlit>=1.40"
+    ],
+    "deja_installees": [
+      "langchain==1.4.9",
+      "langchain-core==1.7.6",
+      "langchain-community==0.4.2",
+      "langchain-ollama==1.1.0",
+      "langchain-chroma==1.1.0",
+      "chromadb==1.5.9",
+      "pypdf==7.0.0",
+      "pytest==9.2.0"
+    ],
+    "action": "Ajouter 'streamlit>=1.40' a requirements.txt. Aucune autre dependance runtime necessaire.",
+    "installation": ".venv/bin/pip install -r requirements.txt",
+    "note": "LangChain est installe en 1.x : utiliser ChatOllama.invoke et non les chains historiques (LLMChain, RetrievalQA)."
+  },
+  "etapes": [
+    "1. Brainstorming, exploration du projet et planification JSON (fait)",
+    "2. Validation du plan et des dependances par l'utilisateur (fait)",
+    "3. Ecriture des tests TDD de app.py et verification du rouge (fait : 18 tests, echec attendu 'No module named app')",
+    "4. Validation du rouge par l'utilisateur (fait)",
+    "5. Installation de streamlit et passage en phase GREEN (fait : streamlit 1.67.0, app.py implemente)",
+    "6. Tests unitaires verts + verification d'integration Ollama/ChromaDB (fait : 39 tests verts au total, 2 integration app verts)",
+    "7. Verification manuelle : streamlit run app.py et questions RH representatives (fait : HTTP 200, flux AppTest complet avec reponse et sources)"
+  ]
+}
