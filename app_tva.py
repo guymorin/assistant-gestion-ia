@@ -76,6 +76,55 @@ def normaliser_montant(texte) -> float | None:
         return None
 
 
+def extraire_caisse_pdf(contenu, reader_factory=None) -> dict:
+    resultat = {
+        "total_ventes": None,
+        "tva_collectee": None,
+        "detail_par_taux": [],
+        "statut": "incomplet",
+    }
+    try:
+        if reader_factory is None:
+            import pypdf
+
+            reader = pypdf.PdfReader(io.BytesIO(contenu))
+        else:
+            reader = reader_factory(contenu)
+        pages = getattr(reader, "pages", []) or []
+        texte = ""
+        for page in pages:
+            try:
+                texte += (page.extract_text() or "") + "\n"
+            except Exception:
+                continue
+        # total_ventes : premiere occurrence de "Total des ventes"
+        m = re.search(r"Total\s+des\s+ventes\s+([\d\s.,]+)", texte)
+        if m:
+            resultat["total_ventes"] = normaliser_montant(m.group(1))
+        # tva_collectee : dans la section B. Taxes, bloc "Total" puis ligne "Taxe"
+        # On cherche le dernier bloc "Total" de la section B Taxes (avant C. Ventes)
+        section_b = texte
+        idx_c = texte.find("C. Ventes")
+        if idx_c != -1:
+            section_b = texte[:idx_c]
+        # trouver le dernier "Total" dans section_b
+        positions = [m.start() for m in re.finditer(r"(?m)^\s*Total\s*$", section_b)]
+        bloc_total = ""
+        if positions:
+            start = positions[-1]
+            # prendre jusqu'a la fin de la section_b ou prochain titre
+            bloc_total = section_b[start:]
+        m_taxe = re.search(r"Taxe\s+([\d\s.,]+)", bloc_total)
+        if m_taxe:
+            resultat["tva_collectee"] = normaliser_montant(m_taxe.group(1))
+        if resultat["total_ventes"] is not None or resultat["tva_collectee"] is not None:
+            resultat["statut"] = "ok"
+    except Exception as exc:
+        logger.warning("extraire_caisse_pdf: %s", exc)
+        resultat["statut"] = "incomplet"
+    return resultat
+
+
 def main() -> None:
     pass
 
