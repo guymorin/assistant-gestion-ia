@@ -445,7 +445,11 @@ def extraire_caisse_excel(contenu, nom, reader_factory=None) -> dict:
             import pandas
 
             moteur = "xlrd" if str(nom).lower().endswith(".xls") else "openpyxl"
-            df = pandas.read_excel(io.BytesIO(contenu), header=None, engine=moteur)
+            import warnings
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                df = pandas.read_excel(io.BytesIO(contenu), header=None, engine=moteur)
         else:
             df = reader_factory(contenu, nom)
         rangees = df.astype(object).where(df.notna(), "").astype(str).values.tolist()

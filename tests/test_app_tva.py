@@ -565,3 +565,100 @@ def test_verifier_rapprochement_obypay_absent():
     assert obypay["statut"] == "INCOMPLET"
     assert res["tva_a_decaisser"] == 1693.71
     assert res["statut"] == "OK"
+
+
+import pytest
+from pathlib import Path
+
+COMPTABLE = Path("Comptable")
+
+
+@pytest.mark.integration
+def test_integration_caisse_rep_septembre():
+    contenu = (COMPTABLE / "HEE-REP-93100/Republique-Caisse-2026-09.pdf").read_bytes()
+    res = app_tva.extraire_caisse_pdf(contenu)
+    assert res["total_ventes"] == 27542.50
+    assert res["tva_collectee"] == 2193.71
+
+
+@pytest.mark.integration
+def test_integration_caisse_mar_septembre():
+    contenu = (COMPTABLE / "HEE-MAR-93100/Marceau-Caisse-2026-09.pdf").read_bytes()
+    res = app_tva.extraire_caisse_pdf(contenu)
+    assert res["total_ventes"] == 31036.00
+    assert res["tva_collectee"] == 2409.03
+
+
+@pytest.mark.integration
+def test_integration_caisse_rep_novembre_xls():
+    contenu = (
+        COMPTABLE
+        / "HEE-REP-93100"
+        / "heesasu-heekoreanchef_heerepublique_business_export_null_20261101_20261201.xls"
+    ).read_bytes()
+    res = app_tva.extraire_caisse_excel(contenu, nom="export.xls")
+    assert res["total_ventes"] == 9320.50
+    assert res["tva_collectee"] == 767.56
+
+
+@pytest.mark.integration
+def test_integration_banque_rep_septembre():
+    contenu = (COMPTABLE / "HEE-REP-93100/Republique-Banque-2026-09.pdf").read_bytes()
+    res = app_tva.extraire_banque_pdf(contenu)
+    assert res["banque"] == "CIC"
+    assert res["total_credits"] == 23960.43
+    assert res["credits_par_source"]["OBYPAY"] == 17466.65
+    assert res["credits_par_source"]["LIGHTSPEED"] == 6210.34
+
+
+@pytest.mark.integration
+def test_integration_banque_mar_septembre():
+    contenu = (COMPTABLE / "HEE-MAR-93100/Marceau-Banque-2026-09.pdf").read_bytes()
+    res = app_tva.extraire_banque_pdf(contenu)
+    assert res["banque"] == "LCL"
+    assert res["total_credits"] == 42537.94
+    assert res["credits_par_source"]["OBYPAY"] == 14667.28
+    assert res["credits_par_source"]["LIGHTSPEED"] == 12546.54
+
+
+@pytest.mark.integration
+def test_integration_obypay_rep_septembre():
+    contenu = next(
+        (COMPTABLE / "HEE-REP-93100").glob("*obypay_monthly_2026-09*.xlsx")
+    ).read_bytes()
+    res = app_tva.extraire_obypay_xlsx(contenu)
+    assert res["total_ttc"] == 19435.50
+    assert res["nb_transactions"] == 1211
+
+
+@pytest.mark.integration
+def test_integration_obypay_mar_septembre():
+    contenu = next(
+        (COMPTABLE / "HEE-MAR-93100").glob("*obypay_monthly_2026-09*.xlsx")
+    ).read_bytes()
+    res = app_tva.extraire_obypay_xlsx(contenu)
+    assert res["total_ttc"] == 16860.90
+    assert res["nb_transactions"] == 993
+
+
+@pytest.mark.integration
+def test_integration_rapprochement_rep_septembre():
+    dossier = COMPTABLE / "HEE-REP-93100"
+    caisse = app_tva.extraire_caisse_pdf(
+        (dossier / "Republique-Caisse-2026-09.pdf").read_bytes()
+    )
+    banque = app_tva.extraire_banque_pdf(
+        (dossier / "Republique-Banque-2026-09.pdf").read_bytes()
+    )
+    obypay = app_tva.extraire_obypay_xlsx(
+        next(dossier.glob("*obypay_monthly_2026-09*.xlsx")).read_bytes()
+    )
+    res = app_tva.verifier_rapprochement(caisse, banque, obypay, 500.0, 10000.0)
+    assert res["statut"] == "OK"
+    assert round(res["ecart_global"], 2) == 3865.51
+    assert round(res["ecart_global_pct"], 4) == 0.1403
+
+
+@pytest.mark.integration
+def test_integration_dernier_mois_disponible_rep():
+    assert app_tva.dernier_mois_disponible("HEE-REP-93100") == (2026, 9)
