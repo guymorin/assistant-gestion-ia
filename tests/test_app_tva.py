@@ -351,3 +351,49 @@ def test_extraire_banque_ignore_les_vir_de_debit():
 def test_extraire_banque_illisible():
     res = app_tva.extraire_banque_pdf(b"dummy", texte_factory=lambda _: "")
     assert res["statut"] == "incomplet"
+
+
+from datetime import date
+from pathlib import Path
+
+
+def test_mois_precedent():
+    assert app_tva.mois_precedent(date(2026, 11, 12)) == (2026, 10)
+    assert app_tva.mois_precedent(date(2026, 1, 5)) == (2025, 12)
+
+
+def test_trouver_fichiers(tmp_path):
+    dossier = tmp_path / "HEE-REP-93100"
+    dossier.mkdir()
+    (dossier / "Republique-Caisse-2026-09.pdf").write_bytes(b"x")
+    (dossier / "Republique-Banque-2026-09.pdf").write_bytes(b"x")
+    (dossier / "dx7speA5wt_obypay_monthly_2026-09-01_2026-09-30_x.xlsx").write_bytes(b"x")
+
+    res = app_tva.trouver_fichiers("HEE-REP-93100", 2026, 9, base_dir=tmp_path)
+    assert res["caisse"].name == "Republique-Caisse-2026-09.pdf"
+    assert res["banque"].name == "Republique-Banque-2026-09.pdf"
+    assert res["obypay"].name.startswith("dx7speA5wt_obypay_monthly_2026-09")
+    assert res["erreur"] is None
+
+
+def test_trouver_fichiers_mois_absent(tmp_path):
+    (tmp_path / "HEE-REP-93100").mkdir()
+    res = app_tva.trouver_fichiers("HEE-REP-93100", 2026, 10, base_dir=tmp_path)
+    assert res["caisse"] is None and res["banque"] is None and res["obypay"] is None
+
+
+def test_trouver_fichiers_dossier_absent(tmp_path):
+    res = app_tva.trouver_fichiers("HEE-REP-93100", 2026, 9, base_dir=tmp_path)
+    assert res["erreur"] is not None
+
+
+def test_dernier_mois_disponible(tmp_path):
+    dossier = tmp_path / "HEE-REP-93100"
+    dossier.mkdir()
+    (dossier / "Republique-Caisse-2026-08.pdf").write_bytes(b"x")
+    (dossier / "Republique-Banque-2026-08.pdf").write_bytes(b"x")
+    (dossier / "Republique-Caisse-2026-09.pdf").write_bytes(b"x")
+    (dossier / "Republique-Banque-2026-09.pdf").write_bytes(b"x")
+    # Un business export isolé ne doit pas compter comme mois complet.
+    (dossier / "x_business_export_null_20261101_20261201.xls").write_bytes(b"x")
+    assert app_tva.dernier_mois_disponible("HEE-REP-93100", base_dir=tmp_path) == (2026, 9)

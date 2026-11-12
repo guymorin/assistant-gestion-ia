@@ -13,7 +13,7 @@ import re
 import shutil
 import subprocess
 import unicodedata
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -21,24 +21,134 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 COMPTABLE_DIR = "./Comptable"
-ETABLISSEMENTS = ["HEE-REP-93100", "HEE-MAR-93100"]
+ETABLISSEMENTS = {
+    "HEE-REP-93100": {
+        "prefixe_fichiers": "Republique",
+        "banque": "CIC",
+        "libelle": "HEE République",
+    },
+    "HEE-MAR-93100": {
+        "prefixe_fichiers": "Marceau",
+        "banque": "LCL",
+        "libelle": "HEE Marceau",
+    },
+}
 MOIS = [
     "Janvier",
-    "Fevrier",
+    "Février",
     "Mars",
     "Avril",
     "Mai",
     "Juin",
     "Juillet",
-    "Aout",
+    "Août",
     "Septembre",
     "Octobre",
     "Novembre",
-    "Decembre",
+    "Décembre",
 ]
 ANNEES = [2025, 2026, 2027]
 TOLERANCE_RAPPROCHEMENT = 0.02
 TOLERANCE_MIN_EUR = 100.0
+
+
+def mois_precedent(jour: date | None = None) -> tuple[int, int]:
+    """Mois précédant ``jour`` (aujourd'hui par défaut) : janvier → décembre N-1."""
+    reference = jour if jour is not None else date.today()
+    if reference.month == 1:
+        return reference.year - 1, 12
+    return reference.year, reference.month - 1
+
+
+def _premier_existant(candidats) -> Path | None:
+    for candidat in candidats:
+        if candidat.is_file():
+            return candidat
+    return None
+
+
+def _caisse_du_mois(dossier: Path, prefixe: str, annee: int, mois: int) -> Path | None:
+    """Rapport de caisse du mois : PDF, puis Excel, puis business export."""
+    base = f"{prefixe}-Caisse-{annee:04d}-{mois:02d}"
+    trouve = _premier_existant(
+        [dossier / f"{base}.pdf", dossier / f"{base}.xls", dossier / f"{base}.xlsx"]
+    )
+    if trouve is not None:
+        return trouve
+    return _premier_existant(
+        sorted(dossier.glob(f"*business_export*_{annee:04d}{mois:02d}*.xls*"))
+    )
+
+
+def trouver_fichiers(
+    etablissement: str,
+    annee: int,
+    mois: int,
+    base_dir: str | Path = COMPTABLE_DIR,
+) -> dict:
+    """Localise les pièces d'un mois ; ``erreur`` si le dossier est absent."""
+    resultat: dict[str, Any] = {
+        "caisse": None,
+        "banque": None,
+        "obypay": None,
+        "erreur": None,
+    }
+    dossier = Path(base_dir) / etablissement
+    if not dossier.is_dir():
+        resultat["erreur"] = f"Dossier {dossier} introuvable"
+        return resultat
+
+    prefixe = ETABLISSEMENTS[etablissement]["prefixe_fichiers"]
+    resultat["caisse"] = _caisse_du_mois(dossier, prefixe, annee, mois)
+    resultat["banque"] = _premier_existant(
+        [dossier / f"{prefixe}-Banque-{annee:04d}-{mois:02d}.pdf"]
+    )
+    resultat["obypay"] = _premier_existant(
+        sorted(dossier.glob(f"*obypay_monthly_{annee:04d}-{mois:02d}-*.xlsx"))
+    )
+    return resultat
+
+
+def _mois_caisse_banque(
+    dossier: Path, prefixe: str
+) -> tuple[set[tuple[int, int]], set[tuple[int, int]]]:
+    """Mois (année, mois) couverts par une caisse et par un relevé bancaire."""
+    motif_caisse = re.compile(
+        rf"^{re.escape(prefixe)}-Caisse-(\d{{4}})-(\d{{2}})\.(?:pdf|xlsx?)$"
+    )
+    motif_banque = re.compile(
+        rf"^{re.escape(prefixe)}-Banque-(\d{{4}})-(\d{{2}})\.pdf$"
+    )
+    caisses: set[tuple[int, int]] = set()
+    banques: set[tuple[int, int]] = set()
+    for fichier in dossier.iterdir():
+        if not fichier.is_file():
+            continue
+        nom = fichier.name
+        for motif, cible in ((motif_caisse, caisses), (motif_banque, banques)):
+            correspondance = motif.match(nom)
+            if correspondance:
+                cible.add(
+                    (int(correspondance.group(1)), int(correspondance.group(2)))
+                )
+                break
+    return caisses, banques
+
+
+def dernier_mois_disponible(
+    etablissement: str, base_dir: str | Path = COMPTABLE_DIR
+) -> tuple[int, int] | None:
+    """Mois le plus récent avec caisse et banque, sinon avec l'une des deux."""
+    dossier = Path(base_dir) / etablissement
+    if not dossier.is_dir():
+        return None
+    prefixe = ETABLISSEMENTS[etablissement]["prefixe_fichiers"]
+    caisses, banques = _mois_caisse_banque(dossier, prefixe)
+    complets = caisses & banques
+    if complets:
+        return max(complets)
+    partiels = caisses | banques
+    return max(partiels) if partiels else None
 
 
 def normaliser_montant(texte) -> float | None:
