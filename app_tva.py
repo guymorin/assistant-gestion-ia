@@ -76,12 +76,130 @@ def normaliser_montant(texte) -> float | None:
         return None
 
 
+_MONTANT_EN_FIN = re.compile(r"^(?P<label>.*?)\s*(?P<montant>-?\d[\d\s.,]*)$")
+_TAUX_TVA = re.compile(r"^tva\s+(?P<taux>\d+(?:[.,]\d+)?)\s*%$")
+_LIBELLES_DEBUT_TAXES = {"b. taxes", "b taxes", "taxes"}
+_LIBELLES_FIN_TAXES = {"c. ventes", "c ventes", "ventes"}
+
+
+def _normaliser_libelle(libelle) -> str:
+    """Normalise un libellé pour les comparaisons (espaces, casse, ponctuation)."""
+    if libelle is None:
+        return ""
+    s = str(libelle).replace("\u00a0", " ").replace("\u202f", " ")
+    s = " ".join(s.split())
+    return s.strip().rstrip(":").lower()
+
+
+def _paires_depuis_texte_pdf(texte: str) -> list[tuple[str, str | None]]:
+    """Transforme chaque ligne en (libellé, dernier montant ou None).
+
+    Une ligne vide est ignorée. Lorsque la ligne se termine par un montant
+    au format français (ex. « 27 542,50 »), le libellé est la ligne privée de
+    ce montant, sinon le montant vaut ``None``.
+    """
+    paires: list[tuple[str, str | None]] = []
+    for ligne in (texte or "").splitlines():
+        ligne = ligne.replace("\u00a0", " ").replace("\u202f", " ").strip()
+        if not ligne:
+            continue
+        correspondance = _MONTANT_EN_FIN.match(ligne)
+        if correspondance and correspondance.group("label").strip():
+            paires.append(
+                (
+                    correspondance.group("label").strip(),
+                    correspondance.group("montant").strip(),
+                )
+            )
+        else:
+            paires.append((ligne, None))
+    return paires
+
+
+def _extraire_caisse_depuis_paires(
+    paires: list[tuple[str, str | None]],
+) -> dict:
+    """Extrait total des ventes, TVA collectée et détail par taux des paires."""
+    resultat = {
+        "total_ventes": None,
+        "tva_collectee": None,
+        "detail_par_taux": [],
+        "statut": "incomplet",
+    }
+    libelles = [_normaliser_libelle(label) for label, _ in paires]
+
+    # total_ventes : première paire « total des ventes » portant une valeur.
+    for label, montant in paires:
+        if "total des ventes" in _normaliser_libelle(label):
+            valeur = normaliser_montant(montant)
+            if valeur is not None:
+                resultat["total_ventes"] = valeur
+                break
+
+    # Section « B. Taxes » = de « B. Taxes » à « C. Ventes ».
+    debut = next(
+        (i for i, libelle in enumerate(libelles) if libelle in _LIBELLES_DEBUT_TAXES),
+        None,
+    )
+    if debut is not None:
+        fin = next(
+            (
+                i
+                for i in range(debut + 1, len(paires))
+                if libelles[i] in _LIBELLES_FIN_TAXES
+            ),
+            len(paires),
+        )
+        section = paires[debut:fin]
+        libelles_section = libelles[debut:fin]
+
+        # tva_collectee : après le dernier « Total » exact de la section,
+        # première ligne dont le libellé est exactement « Taxe ».
+        index_total = None
+        for i, libelle in enumerate(libelles_section):
+            if libelle == "total":
+                index_total = i
+        if index_total is not None:
+            for i in range(index_total + 1, len(section)):
+                if libelles_section[i] == "taxe":
+                    resultat["tva_collectee"] = normaliser_montant(section[i][1])
+                    break
+
+        # detail_par_taux : bloc « TVA <taux>% » suivi de ses trois montants,
+        # jusqu'au prochain taux ou au « Total ».
+        for i in range(len(section)):
+            correspondance = _TAUX_TVA.match(libelles_section[i])
+            if not correspondance:
+                continue
+            taux = normaliser_montant(correspondance.group("taux"))
+            if taux is None:
+                continue
+            valeurs = {"ht": None, "tva": None, "ttc": None}
+            for j in range(i + 1, len(section)):
+                libelle_suivant = libelles_section[j]
+                if _TAUX_TVA.match(libelle_suivant) or libelle_suivant == "total":
+                    break
+                if libelle_suivant == "montant hors-taxe":
+                    valeurs["ht"] = normaliser_montant(section[j][1])
+                elif libelle_suivant == "taxe":
+                    valeurs["tva"] = normaliser_montant(section[j][1])
+                elif libelle_suivant == "montant taxe comprise":
+                    valeurs["ttc"] = normaliser_montant(section[j][1])
+            resultat["detail_par_taux"].append({"taux": taux, **valeurs})
+
+    if resultat["total_ventes"] is not None or resultat["tva_collectee"] is not None:
+        resultat["statut"] = "ok"
+    return resultat
+
+
 def extraire_caisse_pdf(contenu, reader_factory=None) -> dict:
     resultat = {
         "total_ventes": None,
         "tva_collectee": None,
         "detail_par_taux": [],
         "statut": "incomplet",
+        "type_fichier": "caisse_pdf",
+        "erreur": None,
     }
     try:
         if reader_factory is None:
@@ -91,37 +209,22 @@ def extraire_caisse_pdf(contenu, reader_factory=None) -> dict:
         else:
             reader = reader_factory(contenu)
         pages = getattr(reader, "pages", []) or []
-        texte = ""
+        morceaux = []
         for page in pages:
             try:
-                texte += (page.extract_text() or "") + "\n"
+                morceaux.append(page.extract_text() or "")
             except Exception:
                 continue
-        # total_ventes : premiere occurrence de "Total des ventes"
-        m = re.search(r"Total\s+des\s+ventes\s+([\d\s.,]+)", texte)
-        if m:
-            resultat["total_ventes"] = normaliser_montant(m.group(1))
-        # tva_collectee : dans la section B. Taxes, bloc "Total" puis ligne "Taxe"
-        # On cherche le dernier bloc "Total" de la section B Taxes (avant C. Ventes)
-        section_b = texte
-        idx_c = texte.find("C. Ventes")
-        if idx_c != -1:
-            section_b = texte[:idx_c]
-        # trouver le dernier "Total" dans section_b
-        positions = [m.start() for m in re.finditer(r"(?m)^\s*Total\s*$", section_b)]
-        bloc_total = ""
-        if positions:
-            start = positions[-1]
-            # prendre jusqu'a la fin de la section_b ou prochain titre
-            bloc_total = section_b[start:]
-        m_taxe = re.search(r"Taxe\s+([\d\s.,]+)", bloc_total)
-        if m_taxe:
-            resultat["tva_collectee"] = normaliser_montant(m_taxe.group(1))
-        if resultat["total_ventes"] is not None or resultat["tva_collectee"] is not None:
-            resultat["statut"] = "ok"
+        texte = "\n".join(morceaux)
+        extrait = _extraire_caisse_depuis_paires(_paires_depuis_texte_pdf(texte))
+        resultat["total_ventes"] = extrait["total_ventes"]
+        resultat["tva_collectee"] = extrait["tva_collectee"]
+        resultat["detail_par_taux"] = extrait["detail_par_taux"]
+        resultat["statut"] = extrait["statut"]
     except Exception as exc:
         logger.warning("extraire_caisse_pdf: %s", exc)
         resultat["statut"] = "incomplet"
+        resultat["erreur"] = str(exc)
     return resultat
 
 

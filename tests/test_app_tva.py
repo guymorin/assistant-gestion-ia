@@ -103,3 +103,25 @@ def test_extraire_caisse_pdf_illisible():
     assert res["total_ventes"] is None
     assert res["tva_collectee"] is None
     assert res["statut"] == "incomplet"
+
+
+def test_extraire_caisse_pdf_detail_par_taux():
+    res = app_tva.extraire_caisse_pdf(
+        b"dummy", reader_factory=lambda _: _FakeReader(CAISSE_PDF_TEXTE)
+    )
+    assert res["detail_par_taux"] == [
+        {"taux": 10.0, "ht": 17670.09, "tva": 1765.41, "ttc": 19435.50},
+        {"taux": 5.5, "ht": 7637.87, "tva": 420.13, "ttc": 8058.00},
+        {"taux": 20.0, "ht": 40.83, "tva": 8.17, "ttc": 49.00},
+    ]
+
+
+def test_extraire_caisse_pdf_prend_le_dernier_total():
+    texte = CAISSE_PDF_TEXTE.replace(
+        "TVA 5.5%",
+        "Total\nMontant hors-taxe 0,00\nTaxe 111,11\nMontant taxe comprise 0,00\nTVA 5.5%",
+    )
+    res = app_tva.extraire_caisse_pdf(
+        b"dummy", reader_factory=lambda _: _FakeReader(texte)
+    )
+    assert res["tva_collectee"] == 2193.71
