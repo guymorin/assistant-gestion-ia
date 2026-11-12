@@ -13,7 +13,7 @@ import re
 import shutil
 import subprocess
 import unicodedata
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any, Callable
 
@@ -1081,17 +1081,13 @@ def verifier_rapprochement(
     else:
         statut = "OK"
 
-    # obypay statut
-    if obypay and obypay.get("total_ttc") is not None:
-        if obypay_attendu > 0 and abs(ecart_obypay) / obypay_attendu > seuil_ecart_pct:
-            statut_obypay = "A_JUSTIFIER"
-        else:
-            statut_obypay = "OK"
+    # obypay statut : écart négatif (banque > attendu) ou écart relatif > seuil -> A_JUSTIFIER
+    if not obypay or obypay.get("total_ttc") is None or obypay_attendu <= 0:
+        statut_obypay = "INCOMPLET"
+    elif ecart_obypay < 0 or (ecart_pct_obypay is not None and ecart_pct_obypay > seuil_ecart_pct):
+        statut_obypay = "A_JUSTIFIER"
     else:
-        statut_obypay = "INCOMPLET"
-    # if no bank obypay credit but obypay present, still OK-ish? spec: INCOMPLET when obypay absent
-    if not obypay or obypay.get("total_ttc") is None:
-        statut_obypay = "INCOMPLET"
+        statut_obypay = "OK"
 
     sources = [
         {
@@ -1132,8 +1128,8 @@ def verifier_rapprochement(
         avertissements.append("Export Obypay manquant.")
     if lightspeed_banque > 0:
         avertissements.append("Source LIGHTSPEED non rapprochable.")
-    if obypay_attendu > 0 and abs(ecart_obypay) / obypay_attendu > 0.05:
-        avertissements.append("Décalage de versement Obypay supérieur à 5 %.")
+    if obypay_attendu > 0 and abs(ecart_obypay) / obypay_attendu > seuil_ecart_pct:
+        avertissements.append("Décalage de versement Obypay supérieur au seuil configuré.")
 
     return {
         "tva_collectee_caisse": tva_collectee_caisse,
@@ -1200,9 +1196,12 @@ def main() -> None:
             st.warning("Certaines pièces sont manquantes pour ce mois.")
             dernier = dernier_mois_disponible(etablissement)
             if dernier is not None:
-                if st.button("Utiliser le dernier mois disponible", key="btn_dernier_mois"):
-                    _appliquer_mois_disponible(dernier[0], dernier[1])
-                    st.rerun()
+                st.button(
+                    "Utiliser le dernier mois disponible",
+                    key="btn_dernier_mois",
+                    on_click=_appliquer_mois_disponible,
+                    args=(dernier[0], dernier[1]),
+                )
         st.markdown("### Remplacement des pièces")
         up_caisse = st.file_uploader("Caisse", type=["pdf", "xlsx", "xls"], key="up_caisse")
         up_banque = st.file_uploader("Banque", type=["pdf"], key="up_banque")
@@ -1281,11 +1280,12 @@ def main() -> None:
                         return o.getvalue(), getattr(o, "name", "upload")
                     return None, None
 
+                fichiers_det = trouver_fichiers(etablissement, annee, mois) if use_detected else {}
+                if use_detected and fichiers_det.get("erreur"):
+                    st.warning(fichiers_det["erreur"])
                 caisse_files = []
-                if use_detected:
-                    f = trouver_fichiers(etablissement, annee, mois)
-                    if f.get("caisse"):
-                        caisse_files.append(f["caisse"])
+                if use_detected and fichiers_det.get("caisse"):
+                    caisse_files.append(fichiers_det["caisse"])
                 for uf in (ups_caisse or []):
                     caisse_files.append(uf)
                 for cf in caisse_files:
@@ -1300,18 +1300,18 @@ def main() -> None:
                     elif typ == "obypay_xlsx":
                         if obypay_res is None:
                             obypay_res = extraire_obypay_xlsx(data)
+                            st.warning(f"{nom} réaffecté vers Obypay.")
                         else:
                             st.warning(f"Fichier Obypay supplémentaire ignoré : {nom}")
                     elif typ == "banque_pdf":
                         banques.append(extraire_banque_pdf(data))
+                        st.warning(f"{nom} réaffecté vers Banque.")
                     else:
                         st.warning(f"Type inconnu pour {nom}")
 
                 banque_files = []
-                if use_detected:
-                    f = trouver_fichiers(etablissement, annee, mois)
-                    if f.get("banque"):
-                        banque_files.append(f["banque"])
+                if use_detected and fichiers_det.get("banque"):
+                    banque_files.append(fichiers_det["banque"])
                 for uf in (ups_banque or []):
                     banque_files.append(uf)
                 for bf in banque_files:
@@ -1321,18 +1321,29 @@ def main() -> None:
                     typ = detecter_type_fichier(nom, data)
                     if typ == "banque_pdf":
                         banques.append(extraire_banque_pdf(data))
+                    elif typ in ("caisse_pdf", "caisse_excel"):
+                        if typ == "caisse_pdf":
+                            caisses.append(extraire_caisse_pdf(data))
+                        else:
+                            caisses.append(extraire_caisse_excel(data, nom))
+                        st.warning(f"{nom} réaffecté vers Caisse.")
+                    elif typ == "obypay_xlsx":
+                        if obypay_res is None:
+                            obypay_res = extraire_obypay_xlsx(data)
+                        st.warning(f"{nom} réaffecté vers Obypay.")
                     else:
-                        st.warning(f"Type inattendu pour {nom}")
+                        st.warning(f"Type inconnu pour {nom}")
 
                 if up_obypay is not None:
                     data, nom = _lire(up_obypay)
                     if data is not None:
                         obypay_res = extraire_obypay_xlsx(data)
                 elif use_detected:
-                    f = trouver_fichiers(etablissement, annee, mois)
-                    if f.get("obypay") and obypay_res is None:
-                        obypay_res = extraire_obypay_xlsx(f["obypay"].read_bytes())
+                    if fichiers_det.get("obypay") and obypay_res is None:
+                        obypay_res = extraire_obypay_xlsx(fichiers_det["obypay"].read_bytes())
 
+                if not caisses and not banques and obypay_res is None:
+                    st.info("Aucun fichier chargé.")
                 caisse_for_verif = agreger_caisses(caisses) if caisses else None
                 banque_for_verif = agreger_banques(banques) if banques else None
 
@@ -1345,7 +1356,7 @@ def main() -> None:
                 )
 
                 colm1, colm2, colm3 = st.columns(3)
-                colm1.metric("TVA collectée", f"{res['tva_collectee'] or 0:.2f} €")
+                colm1.metric("TVA collectée", formater_euros(res['tva_collectee']))
                 colm2.metric("TVA déductible", f"{res['tva_deductible']:.2f} €")
                 tva_dec = res["tva_a_decaisser"]
                 if tva_dec is not None and tva_dec < 0:

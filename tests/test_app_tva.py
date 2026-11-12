@@ -1,3 +1,6 @@
+import pytest
+from pathlib import Path
+
 def test_import_app_tva():
     import app_tva
 
@@ -354,7 +357,6 @@ def test_extraire_banque_illisible():
 
 
 from datetime import date
-from pathlib import Path
 
 
 def test_mois_precedent():
@@ -566,9 +568,6 @@ def test_verifier_rapprochement_obypay_absent():
     assert res["tva_a_decaisser"] == 1693.71
     assert res["statut"] == "OK"
 
-
-import pytest
-from pathlib import Path
 
 COMPTABLE = Path("Comptable")
 
