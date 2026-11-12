@@ -125,3 +125,51 @@ def test_extraire_caisse_pdf_prend_le_dernier_total():
         b"dummy", reader_factory=lambda _: _FakeReader(texte)
     )
     assert res["tva_collectee"] == 2193.71
+
+
+import pandas as pd
+
+ROWS_CAISSE = [
+    ["Résumé", None],
+    ["Total des ventes", "27 542,50"],
+    ["Taxes", None],
+    ["TVA 10%", None],
+    ["Montant hors-taxe", "17 670,09"],
+    ["Taxe", "1 765,41"],
+    ["Montant taxe comprise", "19 435,50"],
+    ["TVA 5.5%", None],
+    ["Montant hors-taxe", "7 637,87"],
+    ["Taxe", "420,13"],
+    ["Montant taxe comprise", "8 058,00"],
+    ["TVA 20%", None],
+    ["Montant hors-taxe", "40,83"],
+    ["Taxe", "8,17"],
+    ["Montant taxe comprise", "49,00"],
+    ["Total", None],
+    ["Montant hors-taxe", "25 348,79"],
+    ["Taxe", "2 193,71"],
+    ["Montant taxe comprise", "27 542,50"],
+    ["C. Ventes", None],
+    ["Total des ventes", "27 542,50"],
+]
+
+
+def test_extraire_caisse_excel():
+    df = pd.DataFrame(ROWS_CAISSE)
+    res = app_tva.extraire_caisse_excel(
+        b"dummy", nom="caisse.xlsx", reader_factory=lambda *_: df
+    )
+    assert res["total_ventes"] == 27542.50
+    assert res["tva_collectee"] == 2193.71
+    assert len(res["detail_par_taux"]) == 3
+
+
+def test_extraire_caisse_excel_illisible():
+    def factory(*_):
+        raise ValueError("boom")
+
+    res = app_tva.extraire_caisse_excel(
+        b"dummy", nom="caisse.xlsx", reader_factory=factory
+    )
+    assert res["statut"] == "incomplet"
+    assert res["total_ventes"] is None

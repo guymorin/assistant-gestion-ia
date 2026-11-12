@@ -228,6 +228,56 @@ def extraire_caisse_pdf(contenu, reader_factory=None) -> dict:
     return resultat
 
 
+def _paires_depuis_rangees(rangees: list[list]) -> list[tuple[str, str | None]]:
+    """Première cellule non vide = libellé, dernière non vide = valeur."""
+    paires: list[tuple[str, str | None]] = []
+    for rangee in rangees:
+        cellules = []
+        for cellule in rangee:
+            if cellule is None:
+                continue
+            texte = str(cellule).strip()
+            if texte:
+                cellules.append(texte)
+        if not cellules:
+            continue
+        if len(cellules) == 1:
+            paires.append((cellules[0], None))
+        else:
+            paires.append((cellules[0], cellules[-1]))
+    return paires
+
+
+def extraire_caisse_excel(contenu, nom, reader_factory=None) -> dict:
+    resultat = {
+        "total_ventes": None,
+        "tva_collectee": None,
+        "detail_par_taux": [],
+        "statut": "incomplet",
+        "type_fichier": "caisse_excel",
+        "erreur": None,
+    }
+    try:
+        if reader_factory is None:
+            import pandas
+
+            moteur = "xlrd" if str(nom).lower().endswith(".xls") else "openpyxl"
+            df = pandas.read_excel(io.BytesIO(contenu), header=None, engine=moteur)
+        else:
+            df = reader_factory(contenu, nom)
+        rangees = df.astype(object).where(df.notna(), "").astype(str).values.tolist()
+        extrait = _extraire_caisse_depuis_paires(_paires_depuis_rangees(rangees))
+        resultat["total_ventes"] = extrait["total_ventes"]
+        resultat["tva_collectee"] = extrait["tva_collectee"]
+        resultat["detail_par_taux"] = extrait["detail_par_taux"]
+        resultat["statut"] = extrait["statut"]
+    except Exception as exc:
+        logger.warning("extraire_caisse_excel: %s", exc)
+        resultat["statut"] = "incomplet"
+        resultat["erreur"] = str(exc)
+    return resultat
+
+
 def main() -> None:
     pass
 
