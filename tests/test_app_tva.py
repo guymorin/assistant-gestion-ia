@@ -454,3 +454,114 @@ def test_generer_mail_comptable_structure_lisible():
     # Un Path est réduit à son nom de fichier.
     assert "Marceau-Caisse-2026-10.pdf" in mail
     assert "/tmp" not in mail
+CAISSE_REP = {"total_ventes": 27542.50, "tva_collectee": 2193.71, "detail_par_taux": []}
+BANQUE_REP = {
+    "total_credits": 23960.43,
+    "credits_par_source": {"OBYPAY": 17466.65, "LIGHTSPEED": 6210.34, "AUTRES": 283.44},
+}
+OBYPAY_REP = {"total_ttc": 19435.50, "nb_transactions": 1211}
+
+
+def test_agreger_caisses():
+    res = app_tva.agreger_caisses([CAISSE_REP, CAISSE_REP])
+    assert res["total_ventes"] == 55085.00
+    assert res["tva_collectee"] == 4387.42
+
+
+def test_agreger_caisses_fusionne_les_taux():
+    a = {
+        "total_ventes": 100.0,
+        "tva_collectee": 10.0,
+        "detail_par_taux": [{"taux": 10.0, "ht": 90.91, "tva": 9.09, "ttc": 100.0}],
+    }
+    b = {
+        "total_ventes": 50.0,
+        "tva_collectee": 5.0,
+        "detail_par_taux": [{"taux": 10.0, "ht": 45.45, "tva": 4.55, "ttc": 50.0}],
+    }
+    res = app_tva.agreger_caisses([a, b])
+    assert round(res["detail_par_taux"][0]["tva"], 2) == 13.64
+
+
+def test_verifier_rapprochement_rep():
+    res = app_tva.verifier_rapprochement(
+        CAISSE_REP, BANQUE_REP, OBYPAY_REP, 500.0, 10000.0
+    )
+    assert res["tva_collectee"] == 2193.71
+    assert res["tva_a_decaisser"] == 1693.71
+    assert res["total_ventes_attendu"] == 27542.50
+    assert res["credits_identifies"] == 23676.99
+    assert round(res["ecart_global"], 2) == 3865.51
+    assert round(res["ecart_global_pct"], 4) == 0.1403
+    assert res["statut"] == "OK"
+    obypay = next(s for s in res["sources"] if s["source"] == "OBYPAY")
+    assert round(obypay["ecart"], 2) == 1968.85
+    assert obypay["statut"] == "OK"
+    lightspeed = next(s for s in res["sources"] if s["source"] == "LIGHTSPEED")
+    assert lightspeed["statut"] == "NON_RAPPROCHABLE"
+
+
+def test_verifier_rapprochement_seuil_strict():
+    res = app_tva.verifier_rapprochement(
+        CAISSE_REP, BANQUE_REP, OBYPAY_REP, 500.0, 10000.0, seuil_ecart_pct=0.10
+    )
+    assert res["statut"] == "A_JUSTIFIER"
+
+
+def test_verifier_rapprochement_credit_tva():
+    res = app_tva.verifier_rapprochement(
+        CAISSE_REP, BANQUE_REP, OBYPAY_REP, 3000.0, 0.0
+    )
+    assert res["tva_a_decaisser"] == -806.29
+    assert res["credit_tva"] == 806.29
+
+
+def test_verifier_rapprochement_catering():
+    res = app_tva.verifier_rapprochement(
+        CAISSE_REP, BANQUE_REP, OBYPAY_REP, 500.0, 0.0,
+        catering={"present": True, "client": "ACME", "montant_ht": 1000.0, "tva": 100.0},
+    )
+    assert res["tva_collectee"] == 2293.71
+    assert res["total_ventes_attendu"] == 28542.50
+
+
+def test_verifier_rapprochement_incomplet():
+    res = app_tva.verifier_rapprochement(CAISSE_REP, None, OBYPAY_REP, 500.0, 0.0)
+    assert res["statut"] == "INCOMPLET"
+    assert res["tva_a_decaisser"] == 1693.71
+
+
+def test_verifier_rapprochement_caisse_absente_avec_catering():
+    res = app_tva.verifier_rapprochement(
+        None, None, None, 0.0, 0.0,
+        catering={"present": True, "client": "", "montant_ht": 1000.0, "tva": 100.0},
+    )
+    assert res["tva_collectee"] == 100.0
+    assert res["statut"] == "INCOMPLET"
+
+
+CAISSE_MAR = {"total_ventes": 31036.00, "tva_collectee": 2409.03, "detail_par_taux": []}
+BANQUE_MAR = {
+    "total_credits": 42537.94,
+    "credits_par_source": {"OBYPAY": 14667.28, "LIGHTSPEED": 12546.54, "AUTRES": 15324.12},
+}
+OBYPAY_MAR = {"total_ttc": 16860.90, "nb_transactions": 993}
+
+
+def test_verifier_rapprochement_mar():
+    res = app_tva.verifier_rapprochement(
+        CAISSE_MAR, BANQUE_MAR, OBYPAY_MAR, 500.0, 0.0
+    )
+    assert res["statut"] == "OK"
+    assert round(res["ecart_global"], 2) == 3822.18
+    assert round(res["ecart_global_pct"], 4) == 0.1232
+    obypay = next(s for s in res["sources"] if s["source"] == "OBYPAY")
+    assert round(obypay["ecart"], 2) == 2193.62
+
+
+def test_verifier_rapprochement_obypay_absent():
+    res = app_tva.verifier_rapprochement(CAISSE_REP, BANQUE_REP, None, 500.0, 0.0)
+    obypay = next(s for s in res["sources"] if s["source"] == "OBYPAY")
+    assert obypay["statut"] == "INCOMPLET"
+    assert res["tva_a_decaisser"] == 1693.71
+    assert res["statut"] == "OK"

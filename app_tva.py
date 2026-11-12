@@ -48,8 +48,9 @@ MOIS = [
     "Décembre",
 ]
 ANNEES = [2025, 2026, 2027]
-TOLERANCE_RAPPROCHEMENT = 0.02
-TOLERANCE_MIN_EUR = 100.0
+SEUIL_ECART_PCT_DEFAUT = 0.20
+SEUIL_ECART_PCT_MIN = 0.0
+SEUIL_ECART_PCT_MAX = 0.5
 
 
 def mois_precedent(jour: date | None = None) -> tuple[int, int]:
@@ -927,6 +928,228 @@ def generer_mail_comptable(
     ]
     return "\n\n".join(blocs) + "\n"
 
+
+
+def agreger_caisses(caisses) -> dict:
+    total_ventes = 0.0
+    tva_collectee = 0.0
+    detail: dict = {}
+    for c in (caisses or []):
+        if not c:
+            continue
+        if c.get("total_ventes") is not None:
+            total_ventes += c["total_ventes"]
+        if c.get("tva_collectee") is not None:
+            tva_collectee += c["tva_collectee"]
+        for d in (c.get("detail_par_taux") or []):
+            taux = d.get("taux")
+            if taux not in detail:
+                detail[taux] = {"taux": taux, "ht": 0.0, "tva": 0.0, "ttc": 0.0}
+            for champ in ("ht", "tva", "ttc"):
+                v = d.get(champ)
+                if v is not None:
+                    detail[taux][champ] += v
+    return {
+        "total_ventes": total_ventes,
+        "tva_collectee": tva_collectee,
+        "detail_par_taux": list(detail.values()),
+    }
+
+
+def agreger_banques(banques) -> dict:
+    total_debits = 0.0
+    total_credits = 0.0
+    solde_final = 0.0
+    credits_par_source: dict = {}
+    versements = []
+    for b in (banques or []):
+        if not b:
+            continue
+        if b.get("total_debits") is not None:
+            total_debits += b["total_debits"]
+        if b.get("total_credits") is not None:
+            total_credits += b["total_credits"]
+        if b.get("solde_final") is not None:
+            solde_final += b["solde_final"]
+        for src, val in (b.get("credits_par_source") or {}).items():
+            if val is not None:
+                credits_par_source[src] = credits_par_source.get(src, 0.0) + val
+        versements.extend(b.get("versements_obypay") or [])
+    return {
+        "total_debits": total_debits,
+        "total_credits": total_credits,
+        "solde_final": solde_final,
+        "credits_par_source": credits_par_source,
+        "versements_obypay": versements,
+    }
+
+
+def agreger_obypays(obypays) -> dict:
+    total_ttc = 0.0
+    nb_transactions = 0
+    for o in (obypays or []):
+        if not o:
+            continue
+        if o.get("total_ttc") is not None:
+            total_ttc += o["total_ttc"]
+        if o.get("nb_transactions") is not None:
+            nb_transactions += o["nb_transactions"]
+    return {"total_ttc": total_ttc, "nb_transactions": nb_transactions}
+
+
+def verifier_rapprochement(
+    caisse, banque, obypay, tva_deductible, total_factures_fournisseurs,
+    catering=None, seuil_ecart_pct=SEUIL_ECART_PCT_DEFAUT,
+) -> dict:
+    caisse = caisse or {}
+    banque = banque or {}
+    obypay = obypay or {}
+    catering = catering or {}
+    catering_present = bool(catering.get("present"))
+
+    tva_collectee_caisse = caisse.get("tva_collectee")
+    tva_collectee_catering = None
+    if catering_present:
+        v = catering.get("tva")
+        tva_collectee_catering = 0.0 if v is None else v
+
+    if tva_collectee_caisse is None and not catering_present:
+        tva_collectee = None
+    else:
+        tva_collectee = 0.0
+        if tva_collectee_caisse is not None:
+            tva_collectee += tva_collectee_caisse
+        if tva_collectee_catering is not None:
+            tva_collectee += tva_collectee_catering
+
+    total_ventes_caisse = caisse.get("total_ventes")
+    total_ventes_catering = None
+    if catering_present:
+        v = catering.get("montant_ht")
+        total_ventes_catering = 0.0 if v is None else v
+
+    if total_ventes_caisse is None:
+        total_ventes_attendu = None
+    else:
+        total_ventes_attendu = total_ventes_caisse
+        if total_ventes_catering is not None:
+            total_ventes_attendu += total_ventes_catering
+
+    tva_deductible = tva_deductible or 0.0
+    total_factures = total_factures_fournisseurs or 0.0
+
+    if tva_collectee is None:
+        tva_a_decaisser = None
+    else:
+        tva_a_decaisser = tva_collectee - tva_deductible
+
+    if tva_a_decaisser is None:
+        credit_tva = 0.0
+    else:
+        credit_tva = max(0.0, -tva_a_decaisser)
+        if tva_a_decaisser >= 0:
+            credit_tva = 0.0
+
+    total_credits_banque = banque.get("total_credits")
+    credits_par_source = banque.get("credits_par_source") or {}
+    obypay_banque = credits_par_source.get("OBYPAY", 0.0) or 0.0
+    lightspeed_banque = credits_par_source.get("LIGHTSPEED", 0.0) or 0.0
+    autres_banque = credits_par_source.get("AUTRES", 0.0) or 0.0
+    credits_identifies = obypay_banque + lightspeed_banque
+
+    obypay_attendu = obypay.get("total_ttc")
+    if obypay_attendu is None:
+        obypay_attendu = 0.0
+    ecart_obypay = obypay_attendu - obypay_banque
+    ecart_pct_obypay = (ecart_obypay / obypay_attendu) if obypay_attendu > 0 else None
+
+    if total_ventes_attendu is not None and total_ventes_attendu > 0:
+        ecart_global = total_ventes_attendu - credits_identifies
+        ecart_global_pct = ecart_global / total_ventes_attendu
+    else:
+        ecart_global = None
+        ecart_global_pct = None
+
+    if not caisse or not banque or not total_ventes_attendu or total_ventes_attendu <= 0:
+        statut = "INCOMPLET"
+    elif ecart_global < 0 or (ecart_global_pct is not None and ecart_global_pct > seuil_ecart_pct):
+        statut = "A_JUSTIFIER"
+    else:
+        statut = "OK"
+
+    # obypay statut
+    if obypay and obypay.get("total_ttc") is not None:
+        if obypay_attendu > 0 and abs(ecart_obypay) / obypay_attendu > seuil_ecart_pct:
+            statut_obypay = "A_JUSTIFIER"
+        else:
+            statut_obypay = "OK"
+    else:
+        statut_obypay = "INCOMPLET"
+    # if no bank obypay credit but obypay present, still OK-ish? spec: INCOMPLET when obypay absent
+    if not obypay or obypay.get("total_ttc") is None:
+        statut_obypay = "INCOMPLET"
+
+    sources = [
+        {
+            "source": "OBYPAY",
+            "attendu": obypay_attendu,
+            "banque": obypay_banque,
+            "ecart": ecart_obypay,
+            "ecart_pct": ecart_pct_obypay,
+            "statut": statut_obypay,
+            "commentaire": "Décalage de versement possible (payout lag).",
+        },
+        {
+            "source": "LIGHTSPEED",
+            "attendu": None,
+            "banque": lightspeed_banque,
+            "ecart": None,
+            "ecart_pct": None,
+            "statut": "NON_RAPPROCHABLE",
+            "commentaire": "Virements agrégés, non rapprochables par transaction.",
+        },
+        {
+            "source": "AUTRES",
+            "attendu": None,
+            "banque": autres_banque,
+            "ecart": None,
+            "ecart_pct": None,
+            "statut": "INFORMATIF",
+            "commentaire": "Autres crédits (pluxee, edenred, etc.).",
+        },
+    ]
+
+    avertissements = []
+    if not caisse:
+        avertissements.append("Rapport de caisse manquant.")
+    if not banque:
+        avertissements.append("Relevé bancaire manquant.")
+    if not obypay or obypay.get("total_ttc") is None:
+        avertissements.append("Export Obypay manquant.")
+    if lightspeed_banque > 0:
+        avertissements.append("Source LIGHTSPEED non rapprochable.")
+    if obypay_attendu > 0 and abs(ecart_obypay) / obypay_attendu > 0.05:
+        avertissements.append("Décalage de versement Obypay supérieur à 5 %.")
+
+    return {
+        "tva_collectee_caisse": tva_collectee_caisse,
+        "tva_collectee_catering": tva_collectee_catering,
+        "tva_collectee": tva_collectee,
+        "tva_deductible": tva_deductible,
+        "tva_a_decaisser": tva_a_decaisser,
+        "credit_tva": credit_tva,
+        "total_factures_fournisseurs": total_factures,
+        "total_ventes_caisse": total_ventes_caisse,
+        "total_ventes_catering": total_ventes_catering,
+        "total_ventes_attendu": total_ventes_attendu,
+        "total_credits_banque": total_credits_banque,
+        "credits_identifies": credits_identifies,
+        "ecart_global": ecart_global,
+        "ecart_global_pct": ecart_global_pct,
+        "statut": statut,
+        "sources": sources,
+        "avertissements": avertissements,
+    }
 
 def main() -> None:
     pass
