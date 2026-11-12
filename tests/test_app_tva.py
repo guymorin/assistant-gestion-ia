@@ -203,3 +203,17 @@ def test_extraire_obypay_xlsx_sans_entete():
         b"dummy", reader_factory=lambda *_: feuilles
     )
     assert res["statut"] == "incomplet"
+
+
+def test_extraire_obypay_xlsx_premiere_feuille_seulement():
+    autre = [list(rangee) for rangee in ROWS_OBYPAY]
+    autre[2] = ["ZZZZZZZZZ9", "t4", "46266", "100", "100", "100", "Acceptée"]
+    feuilles = {
+        "Transactions": pd.DataFrame(ROWS_OBYPAY),
+        "Copie": pd.DataFrame(autre),
+    }
+    res = app_tva.extraire_obypay_xlsx(
+        b"dummy", reader_factory=lambda *_: feuilles
+    )
+    assert res["total_ttc"] == 63.5
+    assert res["nb_transactions"] == 3

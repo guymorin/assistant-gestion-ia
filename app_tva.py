@@ -326,9 +326,10 @@ def _trouver_entete_obypay(df):
 def extraire_obypay_xlsx(contenu, reader_factory=None) -> dict:
     """Extrait le total TTC et le nombre de transactions d'un export Obypay.
 
-    Le classeur est parcouru feuille par feuille à la recherche d'une ligne
-    d'en-tête contenant « NUMÉRO » et « TRANSACTION ». Seules les lignes dont
-    la cellule NUMÉRO est un identifiant de 10 caractères alphanumériques sont
+    Les feuilles sont parcourues dans l'ordre jusqu'à la première portant une
+    ligne d'en-tête contenant « NUMÉRO » et « TRANSACTION » et au moins une
+    colonne de montant ; elle seule est dépouillée. Seules les lignes dont la
+    cellule NUMÉRO est un identifiant de 10 caractères alphanumériques sont
     retenues, ce qui écarte les marqueurs de section (« AVEC PAIEMENT »,
     « SANS PAIEMENT », « PRODUITS »...).
     """
@@ -387,6 +388,10 @@ def extraire_obypay_xlsx(contenu, reader_factory=None) -> dict:
 
                 total += montant
                 nb_transactions += 1
+
+            # Seule la première feuille portant un en-tête exploitable est lue :
+            # additionner plusieurs feuilles fausserait le total.
+            break
 
         if entete_trouvee:
             resultat["total_ttc"] = round(total, 2)
