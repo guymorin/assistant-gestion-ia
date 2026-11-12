@@ -475,6 +475,188 @@ def extraire_obypay_xlsx(contenu, reader_factory=None) -> dict:
     return resultat
 
 
+# Un montant français : « 4.081,00 », « 3 874,30 » (espace fine ou insécable).
+_MONTANT_BANQUE = r"(\d{1,3}(?:[ .\u00a0\u202f]\d{3})*,\d{2})"
+_MONTANT_BANQUE_RE = re.compile(_MONTANT_BANQUE)
+_TOTAL_CIC_RE = re.compile(
+    r"Total\s+des\s+mouvements\s+" + _MONTANT_BANQUE + r"\s+" + _MONTANT_BANQUE,
+    re.IGNORECASE,
+)
+_TOTAL_LCL_RE = re.compile(
+    r"\bTOTAUX\b\s+" + _MONTANT_BANQUE + r"\s+" + _MONTANT_BANQUE,
+    re.IGNORECASE,
+)
+_SOLDE_CIC_RE = re.compile(
+    r"SOLDE\s+CREDITEUR\s+AU\s+\d{2}/\d{2}/\d{4}\s+" + _MONTANT_BANQUE,
+    re.IGNORECASE,
+)
+_SOLDE_LCL_RE = re.compile(
+    r"SOLDE\s+EN\s+EUROS\s+" + _MONTANT_BANQUE, re.IGNORECASE
+)
+_PERIODE_OBYPAY_RE = re.compile(r"OBYPAY\s+(\d{8})\s+(\d{8})", re.IGNORECASE)
+_MOTIFS_EXCLUS_BANQUE = ("PRLV", "PAIEMENT", "ECH", "FACT", "VIR SALAIRE")
+
+
+def _detecter_banque(texte: str, total_cic, total_lcl) -> str:
+    """Identifie l'émetteur du relevé : LCL, CIC ou inconnu.
+
+    Les en-têtes réels portent le nom de la banque, mais les textes dépouillés
+    ou tronqués peuvent l'avoir perdu : la forme des lignes de totaux sert
+    alors de repli.
+    """
+    texte_majuscules = (texte or "").upper()
+    if "CREDIT LYONNAIS" in texte_majuscules or re.search(
+        r"\bLCL\b", texte_majuscules
+    ):
+        return "LCL"
+    if "CIC" in texte_majuscules:
+        return "CIC"
+    if total_cic is not None:
+        return "CIC"
+    if total_lcl is not None:
+        return "LCL"
+    return "inconnu"
+
+
+def _source_credit(ligne: str) -> str | None:
+    """Source d'une ligne créditrice, ou None si la ligne n'en est pas une."""
+    ligne_majuscules = ligne.upper()
+    if "VIR" not in ligne_majuscules:
+        return None
+    if any(motif in ligne_majuscules for motif in _MOTIFS_EXCLUS_BANQUE):
+        return None
+    if "LIGHTSPEED" in ligne_majuscules:
+        return "LIGHTSPEED"
+    if "2BEVENTS" in ligne_majuscules or "OBYPAY" in ligne_majuscules:
+        return "OBYPAY"
+    return None
+
+
+def _dernier_montant(ligne: str) -> float | None:
+    """Dernier montant français de la ligne (les milliers peuvent être espacés)."""
+    montants = _MONTANT_BANQUE_RE.findall(ligne)
+    if not montants:
+        return None
+    return normaliser_montant(montants[-1])
+
+
+def _periode_obypay(lignes: list[str], index: int) -> tuple[str | None, str | None]:
+    """Période « OBYPAY YYYYMMDD YYYYMMDD » de la ligne ou des deux suivantes."""
+    for ligne in lignes[index : index + 3]:
+        correspondance = _PERIODE_OBYPAY_RE.search(ligne)
+        if correspondance:
+            debut, fin = correspondance.groups()
+            return (
+                f"{debut[:4]}-{debut[4:6]}-{debut[6:]}",
+                f"{fin[:4]}-{fin[4:6]}-{fin[6:]}",
+            )
+    return None, None
+
+
+def extraire_banque_pdf(contenu, reader_factory=None, texte_factory=None) -> dict:
+    """Extrait totaux, solde et crédits Obypay/Lightspeed d'un relevé CIC ou LCL.
+
+    Le texte doit conserver les colonnes (``layout=True``) : sur un relevé LCL
+    les milliers sont séparés par une espace, si bien que le montant ne peut
+    pas être lu comme le dernier « mot » de la ligne.
+    """
+    resultat = {
+        "banque": "inconnu",
+        "total_debits": None,
+        "total_credits": None,
+        "solde_final": None,
+        "credits_par_source": {},
+        "versements_obypay": [],
+        "statut": "incomplet",
+        "type_fichier": "banque_pdf",
+        "erreur": None,
+    }
+    try:
+        if texte_factory is not None:
+            texte = texte_factory(contenu)
+        else:
+            texte = extraire_texte_pdf(
+                contenu, reader_factory=reader_factory, layout=True
+            )
+        texte = texte or ""
+        lignes = texte.splitlines()
+
+        total_cic = _TOTAL_CIC_RE.search(texte)
+        total_lcl = _TOTAL_LCL_RE.search(texte)
+        resultat["banque"] = _detecter_banque(texte, total_cic, total_lcl)
+        lcl = resultat["banque"] == "LCL"
+
+        # Le format propre à la banque identifiée est testé en premier, l'autre
+        # servant de repli pour les relevés atypiques.
+        totaux = (
+            (_TOTAL_LCL_RE, _TOTAL_CIC_RE)
+            if lcl
+            else (_TOTAL_CIC_RE, _TOTAL_LCL_RE)
+        )
+        for motif_totaux in totaux:
+            total = motif_totaux.search(texte)
+            if total is not None:
+                resultat["total_debits"] = normaliser_montant(total.group(1))
+                resultat["total_credits"] = normaliser_montant(total.group(2))
+                break
+
+        for motif_solde in (
+            (_SOLDE_LCL_RE, _SOLDE_CIC_RE)
+            if lcl
+            else (_SOLDE_CIC_RE, _SOLDE_LCL_RE)
+        ):
+            soldes = motif_solde.findall(texte)
+            if soldes:
+                # Le relevé CIC rappelle d'abord l'ancien solde : dernier match.
+                resultat["solde_final"] = normaliser_montant(soldes[-1])
+                break
+
+        credits = {"OBYPAY": 0.0, "LIGHTSPEED": 0.0}
+        for index, ligne in enumerate(lignes):
+            source = _source_credit(ligne)
+            if source is None:
+                continue
+            montant = _dernier_montant(ligne)
+            if montant is None:
+                continue
+            credits[source] += montant
+            if source == "OBYPAY":
+                debut, fin = _periode_obypay(lignes, index)
+                resultat["versements_obypay"].append(
+                    {
+                        "montant": montant,
+                        "periode_debut": debut,
+                        "periode_fin": fin,
+                    }
+                )
+
+        total_credits = resultat["total_credits"]
+        autres = 0.0
+        if total_credits is not None:
+            autres = total_credits - credits["OBYPAY"] - credits["LIGHTSPEED"]
+            if autres < 0:
+                autres = 0.0
+        resultat["credits_par_source"] = {
+            "OBYPAY": round(credits["OBYPAY"], 2),
+            "LIGHTSPEED": round(credits["LIGHTSPEED"], 2),
+            "AUTRES": round(autres, 2),
+        }
+
+        if (
+            resultat["total_debits"] is not None
+            and resultat["total_credits"] is not None
+        ):
+            if credits["OBYPAY"] or credits["LIGHTSPEED"]:
+                resultat["statut"] = "ok"
+            else:
+                resultat["statut"] = "partiel"
+    except Exception as exc:
+        logger.warning("extraire_banque_pdf: %s", exc)
+        resultat["statut"] = "incomplet"
+        resultat["erreur"] = str(exc)
+    return resultat
+
+
 _RELEVE_BANCAIRE = re.compile(r"\breleve")
 
 
