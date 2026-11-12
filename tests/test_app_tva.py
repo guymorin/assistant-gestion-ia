@@ -217,3 +217,73 @@ def test_extraire_obypay_xlsx_premiere_feuille_seulement():
     )
     assert res["total_ttc"] == 63.5
     assert res["nb_transactions"] == 3
+
+
+def test_extraire_texte_pdf_reader_factory():
+    texte = app_tva.extraire_texte_pdf(
+        b"dummy", reader_factory=lambda _: _FakeReader("abc")
+    )
+    assert "abc" in texte
+
+
+def test_extraire_texte_pdf_ne_leve_pas():
+    def factory(_):
+        raise ValueError("boom")
+
+    assert app_tva.extraire_texte_pdf(b"dummy", reader_factory=factory) == ""
+
+
+def test_detecter_type_texte_caisse():
+    texte = "Résumé fiscal\nTotal des ventes 27 542,50"
+    assert app_tva.detecter_type_depuis_texte_pdf(texte) == "caisse_pdf"
+
+
+def test_detecter_type_texte_banque():
+    texte = "RELEVE DE COMPTE\nTOTAUX 19 605,34 42 537,94"
+    assert app_tva.detecter_type_depuis_texte_pdf(texte) == "banque_pdf"
+
+
+def test_detecter_type_texte_caisse_prioritaire():
+    texte = "Résumé fiscal\nTotal des ventes 27 542,50\nTOTAUX 1,00 2,00"
+    assert app_tva.detecter_type_depuis_texte_pdf(texte) == "caisse_pdf"
+
+
+def test_detecter_type_feuilles_obypay():
+    feuilles = {"F": pd.DataFrame([["NUMÉRO", "TRANSACTION", "DATE"]])}
+    assert app_tva.detecter_type_depuis_feuilles(feuilles) == "obypay_xlsx"
+
+
+def test_detecter_type_feuilles_caisse():
+    feuilles = {"F": pd.DataFrame([["Résumé"], ["Taxes"]])}
+    assert app_tva.detecter_type_depuis_feuilles(feuilles) == "caisse_excel"
+
+
+def test_detecter_type_inconnu():
+    assert app_tva.detecter_type_depuis_texte_pdf("bonjour") == "inconnu"
+
+
+def test_detecter_type_fichier_pdf_et_excel():
+    assert app_tva.detecter_type_fichier(
+        "banque.pdf", b"x", texte_factory=lambda _: "RELEVE DE COMPTE TOTAUX 1,00 2,00"
+    ) == "banque_pdf"
+    assert app_tva.detecter_type_fichier(
+        "caisse.xlsx",
+        b"x",
+        feuilles_factory=lambda *_: {"F": pd.DataFrame([["Résumé"], ["Taxes"]])},
+    ) == "caisse_excel"
+    assert app_tva.detecter_type_fichier("notes.txt", b"x") == "inconnu"
+
+
+def test_detecter_type_fichier_ne_leve_pas():
+    def texte_factory(_):
+        raise ValueError("boom")
+
+    def feuilles_factory(*_):
+        raise ValueError("boom")
+
+    assert app_tva.detecter_type_fichier(
+        "banque.pdf", b"x", texte_factory=texte_factory
+    ) == "inconnu"
+    assert app_tva.detecter_type_fichier(
+        "caisse.xlsx", b"x", feuilles_factory=feuilles_factory
+    ) == "inconnu"

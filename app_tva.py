@@ -10,6 +10,8 @@ from __future__ import annotations
 import io
 import logging
 import re
+import shutil
+import subprocess
 import unicodedata
 from datetime import datetime
 from pathlib import Path
@@ -191,6 +193,75 @@ def _extraire_caisse_depuis_paires(
     if resultat["total_ventes"] is not None or resultat["tva_collectee"] is not None:
         resultat["statut"] = "ok"
     return resultat
+
+
+def _texte_depuis_reader(reader) -> str:
+    """Concatène le texte de chaque page d'un reader (pypdf ou factice)."""
+    morceaux = []
+    for page in getattr(reader, "pages", []) or []:
+        try:
+            morceaux.append(page.extract_text() or "")
+        except Exception:
+            continue
+    return "\n".join(morceaux)
+
+
+def _texte_pdf_pypdf(contenu) -> str:
+    import pypdf
+
+    return _texte_depuis_reader(pypdf.PdfReader(io.BytesIO(contenu)))
+
+
+def _texte_pdf_pdftotext(contenu) -> str:
+    """Extrait le texte via ``pdftotext -layout`` (vide si indisponible)."""
+    if shutil.which("pdftotext") is None:
+        return ""
+    resultat = subprocess.run(
+        ["pdftotext", "-layout", "-", "-"],
+        input=contenu,
+        capture_output=True,
+        timeout=60,
+    )
+    if resultat.returncode != 0:
+        return ""
+    return resultat.stdout.decode("utf-8", errors="replace")
+
+
+def _texte_pdf_pdfplumber(contenu) -> str:
+    import pdfplumber
+
+    morceaux = []
+    with pdfplumber.open(io.BytesIO(contenu)) as document:
+        for page in document.pages:
+            morceaux.append(page.extract_text(layout=True) or "")
+    return "\n".join(morceaux)
+
+
+def extraire_texte_pdf(contenu, reader_factory=None, layout=False) -> str:
+    """Extrait le texte d'un PDF sans jamais lever : ``""`` en cas d'échec.
+
+    ``reader_factory`` permet d'injecter un reader maison. En mode ``layout``,
+    on privilégie ``pdftotext -layout`` puis ``pdfplumber`` pour préserver la
+    disposition des colonnes ; ``pypdf`` sert toujours de repli final.
+    """
+    try:
+        if reader_factory is not None:
+            return _texte_depuis_reader(reader_factory(contenu))
+        if layout:
+            for extraction in (_texte_pdf_pdftotext, _texte_pdf_pdfplumber):
+                try:
+                    texte = extraction(contenu)
+                except Exception as exc:
+                    logger.debug(
+                        "extraire_texte_pdf (%s): %s", extraction.__name__, exc
+                    )
+                    continue
+                if texte:
+                    return texte
+        return _texte_pdf_pypdf(contenu)
+    except Exception as exc:
+        logger.warning("extraire_texte_pdf: %s", exc)
+        return ""
 
 
 def extraire_caisse_pdf(contenu, reader_factory=None) -> dict:
@@ -402,6 +473,97 @@ def extraire_obypay_xlsx(contenu, reader_factory=None) -> dict:
         resultat["statut"] = "incomplet"
         resultat["erreur"] = str(exc)
     return resultat
+
+
+_RELEVE_BANCAIRE = re.compile(r"\breleve")
+
+
+def _normaliser_texte_detection(texte) -> str:
+    """Minuscules, accents retirés et espaces unifiés pour la détection."""
+    normalise = unicodedata.normalize(
+        "NFKD", "" if texte is None else str(texte)
+    )
+    normalise = "".join(c for c in normalise if not unicodedata.combining(c))
+    return " ".join(normalise.lower().split())
+
+
+def detecter_type_depuis_texte_pdf(texte) -> str:
+    """Devine le type d'un PDF à partir de son texte : caisse, banque, inconnu.
+
+    La caisse est testée en premier : un rapport de caisse contenant aussi
+    « Total des ventes » ne doit jamais être classé comme relevé bancaire.
+    """
+    normalise = _normaliser_texte_detection(texte)
+    if "resume fiscal" in normalise or "total des ventes" in normalise:
+        return "caisse_pdf"
+    if (
+        _RELEVE_BANCAIRE.search(normalise)
+        or "totaux" in normalise
+        or "total des mouvements" in normalise
+    ):
+        return "banque_pdf"
+    return "inconnu"
+
+
+def _entetes_feuille(df) -> set[str]:
+    """Ensemble des libellés normalisés (majuscules, sans accents) d'une feuille."""
+    entetes: set[str] = set()
+    if df is None or not hasattr(df, "values"):
+        return entetes
+    rangees = df.astype(object).where(df.notna(), None).values.tolist()
+    for rangee in rangees:
+        for cellule in rangee:
+            entete = _normaliser_entete(cellule)
+            if entete:
+                entetes.add(entete)
+    return entetes
+
+
+def detecter_type_depuis_feuilles(feuilles) -> str:
+    """Devine le type d'un classeur : export Obypay, caisse Excel ou inconnu."""
+    try:
+        entetes_par_feuille = [
+            _entetes_feuille(df) for df in (feuilles or {}).values()
+        ]
+        # Obypay d'abord : un export de transactions reste identifiable même
+        # s'il contient par ailleurs des libellés de caisse.
+        for entetes in entetes_par_feuille:
+            if "NUMERO" in entetes and "TRANSACTION" in entetes:
+                return "obypay_xlsx"
+        for entetes in entetes_par_feuille:
+            if "RESUME" in entetes and "TAXES" in entetes:
+                return "caisse_excel"
+    except Exception as exc:
+        logger.warning("detecter_type_depuis_feuilles: %s", exc)
+    return "inconnu"
+
+
+def detecter_type_fichier(
+    nom, contenu, texte_factory=None, feuilles_factory=None
+) -> str:
+    """Détecte le type d'un fichier d'après son extension ; ne lève jamais."""
+    try:
+        suffixe = Path(str(nom or "")).suffix.lower()
+        if suffixe == ".pdf":
+            if texte_factory is not None:
+                texte = texte_factory(contenu)
+            else:
+                texte = extraire_texte_pdf(contenu)
+            return detecter_type_depuis_texte_pdf(texte)
+        if suffixe in (".xls", ".xlsx"):
+            if feuilles_factory is not None:
+                feuilles = feuilles_factory(contenu, nom)
+            else:
+                import pandas
+
+                moteur = "xlrd" if suffixe == ".xls" else "openpyxl"
+                feuilles = pandas.read_excel(
+                    io.BytesIO(contenu), sheet_name=None, header=None, engine=moteur
+                )
+            return detecter_type_depuis_feuilles(feuilles)
+    except Exception as exc:
+        logger.warning("detecter_type_fichier: %s", exc)
+    return "inconnu"
 
 
 def main() -> None:
