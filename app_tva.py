@@ -858,6 +858,76 @@ def detecter_type_fichier(
     return "inconnu"
 
 
+_PIECES_MAIL = (
+    ("caisse", "Rapport de caisse"),
+    ("banque", "Relevé bancaire"),
+    ("obypay", "Export Obypay"),
+)
+
+
+def formater_euros(valeur) -> str:
+    """Montant au format français (« 1 234,50 € ») ; ``None`` → « non trouvé »."""
+    if valeur is None:
+        return "non trouvé"
+    texte = f"{float(valeur):,.2f}".replace(",", " ").replace(".", ",")
+    return f"{texte} €"
+
+
+def _nom_piece(valeur) -> str:
+    """Nom du fichier joint, ou « à fournir » si la pièce manque."""
+    if valeur is None:
+        return "à fournir"
+    return Path(str(valeur)).name or "à fournir"
+
+
+def _ligne_catering(catering) -> str:
+    if not catering or not catering.get("present"):
+        return "Facture catering : Non"
+    montant_ht = catering.get("montant_ht")
+    tva = catering.get("tva")
+    ttc = montant_ht + tva if montant_ht is not None and tva is not None else None
+    client = catering.get("client") or "non renseigné"
+    return (
+        f"Facture catering : Oui — {client} — "
+        f"HT {formater_euros(montant_ht)}, TVA {formater_euros(tva)} "
+        f"(TTC {formater_euros(ttc)})"
+    )
+
+
+def generer_mail_comptable(
+    etablissement: str,
+    annee: int,
+    mois: int,
+    fichiers,
+    catering=None,
+) -> str:
+    """Rédige le mail de transmission des pièces du mois au comptable.
+
+    Les pièces absentes sont signalées « à fournir » plutôt que de faire
+    échouer la génération. Le mail se limite à la transmission des pièces :
+    ni liste de factures d'achat, ni récapitulatif de TVA.
+    """
+    libelle = ETABLISSEMENTS[etablissement]["libelle"]
+    pieces = fichiers or {}
+    lignes_pieces = [
+        f"{intitule} : {_nom_piece(pieces.get(cle))}"
+        for cle, intitule in _PIECES_MAIL
+    ]
+    blocs = [
+        f"Objet : Déclaration de TVA — {libelle} ({etablissement}) "
+        f"— {MOIS[mois - 1]} {annee}",
+        "Bonjour,",
+        "Veuillez trouver ci-dessous les pièces du mois pour la déclaration "
+        "de TVA.",
+        "\n".join(lignes_pieces),
+        _ligne_catering(catering),
+        "Restant à votre disposition pour toute précision, je vous prie "
+        "d'agréer mes salutations distinguées.",
+        "Cordialement,\nL'équipe gestion",
+    ]
+    return "\n\n".join(blocs) + "\n"
+
+
 def main() -> None:
     pass
 

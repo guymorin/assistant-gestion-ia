@@ -397,3 +397,60 @@ def test_dernier_mois_disponible(tmp_path):
     # Un business export isolé ne doit pas compter comme mois complet.
     (dossier / "x_business_export_null_20261101_20261201.xls").write_bytes(b"x")
     assert app_tva.dernier_mois_disponible("HEE-REP-93100", base_dir=tmp_path) == (2026, 9)
+
+
+def test_formater_euros():
+    assert app_tva.formater_euros(1234.5) == "1 234,50 €"
+    assert app_tva.formater_euros(None) == "non trouvé"
+
+
+def test_generer_mail_comptable():
+    fichiers = {
+        "caisse": "Republique-Caisse-2026-09.pdf",
+        "banque": "Republique-Banque-2026-09.pdf",
+        "obypay": "obypay_monthly_2026-09.xlsx",
+    }
+    mail = app_tva.generer_mail_comptable("HEE-REP-93100", 2026, 9, fichiers)
+    assert "HEE République (HEE-REP-93100)" in mail
+    assert "Septembre 2026" in mail
+    assert "Republique-Caisse-2026-09.pdf" in mail
+    assert "Republique-Banque-2026-09.pdf" in mail
+    assert "obypay_monthly_2026-09.xlsx" in mail
+    assert "Facture catering : Non" in mail
+    assert "fournisseur" not in mail.lower()
+
+
+def test_generer_mail_catering_et_piece_manquante():
+    mail = app_tva.generer_mail_comptable(
+        "HEE-REP-93100",
+        2026,
+        9,
+        {"caisse": None, "banque": "b.pdf", "obypay": "o.xlsx"},
+        catering={"present": True, "client": "ACME", "montant_ht": 1000.0, "tva": 100.0},
+    )
+    assert "Rapport de caisse : à fournir" in mail
+    assert "Facture catering : Oui — ACME — HT 1 000,00 €, TVA 100,00 € (TTC 1 100,00 €)" in mail
+
+
+def test_generer_mail_comptable_structure_lisible():
+    mail = app_tva.generer_mail_comptable(
+        "HEE-MAR-93100",
+        2026,
+        10,
+        {
+            "caisse": Path("/tmp/Marceau-Caisse-2026-10.pdf"),
+            "banque": None,
+            "obypay": "o.xlsx",
+        },
+    )
+    lignes = mail.splitlines()
+    assert lignes[0].startswith("Objet : Déclaration de TVA — HEE Marceau (HEE-MAR-93100)")
+    assert "Octobre 2026" in lignes[0]
+    # Les blocs sont séparés par une ligne vide.
+    assert "" in lignes
+    texte_minuscules = mail.lower()
+    assert "fournisseur" not in texte_minuscules
+    assert "récapitulatif" not in texte_minuscules
+    # Un Path est réduit à son nom de fichier.
+    assert "Marceau-Caisse-2026-10.pdf" in mail
+    assert "/tmp" not in mail
