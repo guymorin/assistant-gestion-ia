@@ -173,3 +173,33 @@ def test_extraire_caisse_excel_illisible():
     )
     assert res["statut"] == "incomplet"
     assert res["total_ventes"] is None
+
+
+ROWS_OBYPAY = [
+    ["NUMÉRO", "TRANSACTION", "DATE", "PRIX TTC AVANT REMISE",
+     "PRIX TTC APRES REMISE", "MOYEN PAYMENT 1 TTC", "STATUT CAISSE"],
+    ["AVEC PAIEMENT", None, None, None, None, None, None],
+    ["AJU4SGdnnX", "t1", "46266", "27", "27", "27", "Acceptée"],
+    ["xiYA38SD6E", "t2", "46266", "14", "14", "14", "Acceptée"],
+    ["tCbudaXFX1", "t3", "46266", "22.5", "22.5", "22.5", "Acceptée"],
+    ["SANS PAIEMENT", None, None, None, None, None, None],
+    ["PRODUIT HORS PAIEMENT", None, None, None, None, "999", None],
+]
+
+
+def test_extraire_obypay_xlsx():
+    feuilles = {"Transactions": pd.DataFrame(ROWS_OBYPAY)}
+    res = app_tva.extraire_obypay_xlsx(
+        b"dummy", reader_factory=lambda *_: feuilles
+    )
+    assert res["total_ttc"] == 63.5
+    assert res["nb_transactions"] == 3
+    assert res["statut"] == "ok"
+
+
+def test_extraire_obypay_xlsx_sans_entete():
+    feuilles = {"Feuille": pd.DataFrame([["a", "b"], ["1", "2"]])}
+    res = app_tva.extraire_obypay_xlsx(
+        b"dummy", reader_factory=lambda *_: feuilles
+    )
+    assert res["statut"] == "incomplet"

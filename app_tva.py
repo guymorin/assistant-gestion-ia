@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import logging
 import re
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -273,6 +274,126 @@ def extraire_caisse_excel(contenu, nom, reader_factory=None) -> dict:
         resultat["statut"] = extrait["statut"]
     except Exception as exc:
         logger.warning("extraire_caisse_excel: %s", exc)
+        resultat["statut"] = "incomplet"
+        resultat["erreur"] = str(exc)
+    return resultat
+
+
+def _texte_cellule(cellule) -> str:
+    """Représentation texte d'une cellule, vide pour None/NaN."""
+    if cellule is None:
+        return ""
+    try:
+        if cellule != cellule:  # NaN
+            return ""
+    except Exception:
+        pass
+    return str(cellule).strip()
+
+
+def _normaliser_entete(cellule) -> str:
+    """Normalise un libellé d'en-tête : accents ignorés, casse et espaces unifiés."""
+    texte = unicodedata.normalize("NFKD", _texte_cellule(cellule))
+    texte = "".join(c for c in texte if not unicodedata.combining(c))
+    return " ".join(texte.split()).upper()
+
+
+_OBYPAY_NUMERO = re.compile(r"^[A-Za-z0-9]{10}$")
+_OBYPAY_COLONNES_MONTANT = (
+    "MOYEN PAYMENT 1 TTC",
+    "PRIX TTC APRES REMISE",
+    "PRIX TTC AVANT REMISE",
+)
+
+
+def _trouver_entete_obypay(df):
+    """Renvoie (index de la ligne d'en-tête, {libellé: colonne}, lignes) ou None."""
+    if df is None or not hasattr(df, "values"):
+        return None
+    rangees = df.astype(object).where(df.notna(), None).values.tolist()
+    for index, rangee in enumerate(rangees):
+        entetes = [_normaliser_entete(cellule) for cellule in rangee]
+        if "NUMERO" not in entetes or "TRANSACTION" not in entetes:
+            continue
+        colonnes: dict[str, int] = {}
+        for position, entete in enumerate(entetes):
+            if entete and entete not in colonnes:
+                colonnes[entete] = position
+        return index, colonnes, rangees
+    return None
+
+
+def extraire_obypay_xlsx(contenu, reader_factory=None) -> dict:
+    """Extrait le total TTC et le nombre de transactions d'un export Obypay.
+
+    Le classeur est parcouru feuille par feuille à la recherche d'une ligne
+    d'en-tête contenant « NUMÉRO » et « TRANSACTION ». Seules les lignes dont
+    la cellule NUMÉRO est un identifiant de 10 caractères alphanumériques sont
+    retenues, ce qui écarte les marqueurs de section (« AVEC PAIEMENT »,
+    « SANS PAIEMENT », « PRODUITS »...).
+    """
+    resultat = {
+        "total_ttc": None,
+        "nb_transactions": 0,
+        "statut": "incomplet",
+        "type_fichier": "obypay_xlsx",
+        "erreur": None,
+    }
+    try:
+        if reader_factory is None:
+            import pandas
+
+            feuilles = pandas.read_excel(
+                io.BytesIO(contenu), sheet_name=None, header=None
+            )
+        else:
+            feuilles = reader_factory(contenu)
+        if not feuilles:
+            return resultat
+
+        total = 0.0
+        nb_transactions = 0
+        entete_trouvee = False
+
+        for df in feuilles.values():
+            trouve = _trouver_entete_obypay(df)
+            if trouve is None:
+                continue
+            index_entete, colonnes, rangees = trouve
+            if not any(
+                libelle in colonnes for libelle in _OBYPAY_COLONNES_MONTANT
+            ):
+                continue
+            entete_trouvee = True
+
+            colonne_numero = colonnes["NUMERO"]
+            for rangee in rangees[index_entete + 1 :]:
+                if colonne_numero >= len(rangee):
+                    continue
+                numero = _texte_cellule(rangee[colonne_numero])
+                if not _OBYPAY_NUMERO.match(numero):
+                    continue
+
+                montant = None
+                for libelle in _OBYPAY_COLONNES_MONTANT:
+                    position = colonnes.get(libelle)
+                    if position is None or position >= len(rangee):
+                        continue
+                    montant = normaliser_montant(rangee[position])
+                    if montant is not None:
+                        break
+                if montant is None:
+                    continue
+
+                total += montant
+                nb_transactions += 1
+
+        if entete_trouvee:
+            resultat["total_ttc"] = round(total, 2)
+            resultat["nb_transactions"] = nb_transactions
+            resultat["statut"] = "ok"
+    except Exception as exc:
+        logger.warning("extraire_obypay_xlsx: %s", exc)
         resultat["statut"] = "incomplet"
         resultat["erreur"] = str(exc)
     return resultat
