@@ -1151,8 +1151,221 @@ def verifier_rapprochement(
         "avertissements": avertissements,
     }
 
+
+def _appliquer_mois_disponible(annee: int, mois: int) -> None:
+    import streamlit as st
+
+    st.session_state["mail_annee"] = annee
+    st.session_state["mail_mois"] = mois - 1
+
+
 def main() -> None:
-    pass
+    import streamlit as st
+    import pandas as pd
+
+    st.set_page_config(page_title="Assistant TVA - Comptabilité", page_icon="🧾", layout="wide")
+    st.title("Assistant TVA - Comptabilité")
+
+    if "mail_annee" not in st.session_state:
+        a, m = mois_precedent()
+        st.session_state["mail_annee"] = a
+        st.session_state["mail_mois"] = m - 1
+    if "catering" not in st.session_state:
+        st.session_state["catering"] = {"present": False, "client": "", "montant_ht": 0.0, "tva": 0.0}
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        etablissement = st.selectbox("Établissement", list(ETABLISSEMENTS), key="mail_etab")
+    with col2:
+        mois_idx = st.selectbox("Mois", range(12), format_func=lambda i: MOIS[i], key="mail_mois")
+    with col3:
+        annee = st.selectbox("Année", ANNEES, key="mail_annee")
+
+    mois = mois_idx + 1
+
+    tab_mail, tab_verif = st.tabs(["Mail comptable", "Vérification et rapprochement de TVA"])
+
+    with tab_mail:
+        fichiers = trouver_fichiers(etablissement, annee, mois)
+        st.markdown("### Pièces détectées")
+        for cle, intitule in (("caisse", "Rapport de caisse"), ("banque", "Relevé bancaire"), ("obypay", "Export Obypay")):
+            ok = bool(fichiers.get(cle))
+            st.write(f"{'✅' if ok else '❌'} {intitule} : {fichiers.get(cle) or 'manquant'}")
+        manquants = [k for k in ("caisse", "banque", "obypay") if not fichiers.get(k)]
+        if manquants:
+            st.warning("Certaines pièces sont manquantes pour ce mois.")
+            dernier = dernier_mois_disponible(etablissement)
+            if dernier is not None:
+                if st.button("Utiliser le dernier mois disponible", key="btn_dernier_mois"):
+                    _appliquer_mois_disponible(dernier[0], dernier[1])
+                    st.rerun()
+        st.markdown("### Remplacement des pièces")
+        up_caisse = st.file_uploader("Caisse", type=["pdf", "xlsx", "xls"], key="up_caisse")
+        up_banque = st.file_uploader("Banque", type=["pdf"], key="up_banque")
+        up_obypay = st.file_uploader("Obypay", type=["xlsx"], key="up_obypay")
+
+        pieces = dict(fichiers)
+        if up_caisse is not None:
+            pieces["caisse"] = up_caisse
+        if up_banque is not None:
+            pieces["banque"] = up_banque
+        if up_obypay is not None:
+            pieces["obypay"] = up_obypay
+
+        st.markdown("### Catering")
+        catering_present = st.checkbox(
+            "Facture catering ce mois-ci ?",
+            value=st.session_state["catering"].get("present", False),
+            key="cat_present",
+        )
+        client = ""
+        montant_ht = 0.0
+        tva_cat = 0.0
+        if catering_present:
+            client = st.text_input("Client / référence", value=st.session_state["catering"].get("client", ""), key="cat_client")
+            montant_ht = st.number_input("Montant HT (€)", min_value=0.0, value=float(st.session_state["catering"].get("montant_ht", 0.0) or 0.0), key="cat_ht")
+            tva_cat = st.number_input("TVA (€)", min_value=0.0, value=float(st.session_state["catering"].get("tva", 0.0) or 0.0), key="cat_tva")
+        st.session_state["catering"] = {
+            "present": catering_present,
+            "client": client,
+            "montant_ht": montant_ht,
+            "tva": tva_cat,
+        }
+
+        fichiers_mail = {}
+        for cle in ("caisse", "banque", "obypay"):
+            v = pieces.get(cle)
+            if hasattr(v, "name"):
+                fichiers_mail[cle] = v.name
+            elif isinstance(v, (str, Path)):
+                fichiers_mail[cle] = str(v)
+            else:
+                fichiers_mail[cle] = v
+
+        if st.button("Générer le mail", key="btn_mail"):
+            mail = generer_mail_comptable(
+                etablissement, annee, mois, fichiers_mail, catering=st.session_state["catering"]
+            )
+            st.code(mail, language="text")
+
+    with tab_verif:
+        use_detected = st.checkbox("Utiliser les fichiers détectés dans ./Comptable", value=True, key="use_detected")
+        st.markdown("### Uploads")
+        ups_caisse = st.file_uploader("Caisse (multiple)", type=["pdf", "xlsx", "xls"], accept_multiple_files=True, key="v_caisse")
+        ups_banque = st.file_uploader("Banque (multiple)", type=["pdf"], accept_multiple_files=True, key="v_banque")
+        up_obypay = st.file_uploader("Obypay (optionnel)", type=["xlsx"], key="v_obypay")
+
+        cat = st.session_state.get("catering", {})
+        st.caption(f"TVA catering (onglet 1) : {cat.get('tva', 0.0)} € — modifier dans l'onglet Mail comptable.")
+
+        tva_deductible = st.number_input("TVA déductible (€)", min_value=0.0, value=0.0, key="v_tva_ded")
+        total_factures = st.number_input("Total des factures fournisseurs (€)", min_value=0.0, value=0.0, key="v_fact")
+        st.caption("Informatif")
+        seuil_pct = st.number_input("Seuil d'écart (%)", min_value=0, max_value=50, value=20, key="v_seuil")
+        seuil = seuil_pct / 100.0
+
+        if st.button("Lancer la vérification", key="btn_verif"):
+            try:
+                caisses = []
+                banques = []
+                obypay_res = None
+
+                def _lire(o):
+                    if hasattr(o, "read_bytes"):
+                        return o.read_bytes(), getattr(o, "name", str(o))
+                    if hasattr(o, "getvalue"):
+                        return o.getvalue(), getattr(o, "name", "upload")
+                    return None, None
+
+                caisse_files = []
+                if use_detected:
+                    f = trouver_fichiers(etablissement, annee, mois)
+                    if f.get("caisse"):
+                        caisse_files.append(f["caisse"])
+                for uf in (ups_caisse or []):
+                    caisse_files.append(uf)
+                for cf in caisse_files:
+                    data, nom = _lire(cf)
+                    if data is None:
+                        continue
+                    typ = detecter_type_fichier(nom, data)
+                    if typ == "caisse_pdf":
+                        caisses.append(extraire_caisse_pdf(data))
+                    elif typ == "caisse_excel":
+                        caisses.append(extraire_caisse_excel(data, nom))
+                    elif typ == "obypay_xlsx":
+                        if obypay_res is None:
+                            obypay_res = extraire_obypay_xlsx(data)
+                        else:
+                            st.warning(f"Fichier Obypay supplémentaire ignoré : {nom}")
+                    elif typ == "banque_pdf":
+                        banques.append(extraire_banque_pdf(data))
+                    else:
+                        st.warning(f"Type inconnu pour {nom}")
+
+                banque_files = []
+                if use_detected:
+                    f = trouver_fichiers(etablissement, annee, mois)
+                    if f.get("banque"):
+                        banque_files.append(f["banque"])
+                for uf in (ups_banque or []):
+                    banque_files.append(uf)
+                for bf in banque_files:
+                    data, nom = _lire(bf)
+                    if data is None:
+                        continue
+                    typ = detecter_type_fichier(nom, data)
+                    if typ == "banque_pdf":
+                        banques.append(extraire_banque_pdf(data))
+                    else:
+                        st.warning(f"Type inattendu pour {nom}")
+
+                if up_obypay is not None:
+                    data, nom = _lire(up_obypay)
+                    if data is not None:
+                        obypay_res = extraire_obypay_xlsx(data)
+                elif use_detected:
+                    f = trouver_fichiers(etablissement, annee, mois)
+                    if f.get("obypay") and obypay_res is None:
+                        obypay_res = extraire_obypay_xlsx(f["obypay"].read_bytes())
+
+                caisse_for_verif = agreger_caisses(caisses) if caisses else None
+                banque_for_verif = agreger_banques(banques) if banques else None
+
+                catering_payload = cat if cat.get("present") else None
+
+                res = verifier_rapprochement(
+                    caisse_for_verif, banque_for_verif, obypay_res,
+                    tva_deductible, total_factures, catering=catering_payload,
+                    seuil_ecart_pct=seuil,
+                )
+
+                colm1, colm2, colm3 = st.columns(3)
+                colm1.metric("TVA collectée", f"{res['tva_collectee'] or 0:.2f} €")
+                colm2.metric("TVA déductible", f"{res['tva_deductible']:.2f} €")
+                tva_dec = res["tva_a_decaisser"]
+                if tva_dec is not None and tva_dec < 0:
+                    colm3.metric("Crédit de TVA", f"{res['credit_tva']:.2f} €")
+                else:
+                    colm3.metric("TVA à décaisser", f"{tva_dec or 0:.2f} €")
+
+                st.write(f"Statut global : **{res['statut']}**")
+                st.dataframe(pd.DataFrame(res["sources"]))
+                st.write(f"TVA collectée caisse : {res['tva_collectee_caisse']}")
+                if res.get("tva_collectee_catering"):
+                    st.write(f"TVA collectée catering : {res['tva_collectee_catering']}")
+                st.caption(f"Total factures fournisseurs (informatif) : {res['total_factures_fournisseurs']:.2f} €")
+                for av in res.get("avertissements", []):
+                    st.warning(av)
+
+                details = []
+                for c in caisses:
+                    details.extend(c.get("detail_par_taux") or [])
+                if details:
+                    st.dataframe(pd.DataFrame(details))
+            except Exception as e:
+                st.error(f"Erreur lors de la vérification : {e}")
+
 
 
 if __name__ == "__main__":
