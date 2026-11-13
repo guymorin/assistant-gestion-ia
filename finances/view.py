@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +9,14 @@ import streamlit as st
 
 from shared.info import InfoItem
 
-from . import core
+from . import core, logic
+
+logger = logging.getLogger(__name__)
+
+SOUS_VUES = ("Q&R", "Déclaration de TVA")
+SOUS_VUE_DEFAUT = "Q&R"
+TEXTE_QR = "Posez vos questions Finances : les reponses sont fondees sur les documents indexes, avec leurs sources."
+AVERTISSEMENT_QR = "⚠️ Reponse generee automatiquement : verifiez toujours les sources affichees avant toute decision administrative et financière."
 
 
 def _ensure_state(session_state: Any) -> None:
@@ -20,6 +28,20 @@ def _ensure_state(session_state: Any) -> None:
         session_state.fin_catering = {"present": False, "client": "", "montant_ht": 0.0, "tva": 0.0}
     if "fin_detect_nonce" not in session_state:
         session_state.fin_detect_nonce = 0
+    if "fin_sous_vue" not in session_state or session_state.fin_sous_vue not in SOUS_VUES:
+        session_state.fin_sous_vue = SOUS_VUE_DEFAUT
+    if "fin_messages" not in session_state:
+        session_state.fin_messages = []
+
+
+@st.cache_resource(show_spinner=False)
+def _vectorstore() -> Any:
+    return logic.creer_vectorstore()
+
+
+@st.cache_resource(show_spinner=False)
+def _llm() -> Any:
+    return logic.creer_llm()
 
 
 def _lire_upload(o: Any):
@@ -72,6 +94,58 @@ def _collect_infos(session_state: Any, etablissement: str, annee: int, mois: int
     return items
 
 
+def _collect_qr_infos(session_state: Any) -> list[InfoItem]:
+    base_ok = logic._base_disponible()
+    infos_ing = logic.infos_ingestion()
+    date_ing = infos_ing.get("date")
+    chunks = infos_ing.get("chunks")
+    if date_ing is None:
+        ing_val = "inconnue"
+    else:
+        ing_val = date_ing.strftime("%d/%m/%Y %H:%M")
+        if isinstance(chunks, int):
+            ing_val += f" ({chunks:,} extraits)".replace(",", " ")
+    items = [
+        InfoItem(
+            "fin_qr_base",
+            "Base documentaire Finances",
+            "disponible" if base_ok else "indisponible",
+            "Indique si l'index des documents Finances (Ingestion/Finances) est présent.",
+            niveau="info" if base_ok else "warning",
+        ),
+        InfoItem(
+            "fin_qr_ingestion",
+            "Dernière ingestion Finances",
+            ing_val,
+            "Date de la dernière ingestion du module Finances.",
+            niveau="info" if date_ing else "warning",
+        ),
+        InfoItem(
+            "fin_qr_modele",
+            "Modèle de langage",
+            logic.LLM_MODEL,
+            "Modèle local utilisé pour générer les réponses Finances.",
+        ),
+        InfoItem(
+            "fin_qr_embeddings",
+            "Modèle d’indexation (embeddings)",
+            logic.EMBEDDING_MODEL,
+            "Modèle utilisé pour indexer et retrouver les passages pertinents.",
+        ),
+    ]
+    if not base_ok:
+        items.append(
+            InfoItem(
+                "fin_qr_disponibilite",
+                "État Q&R Finances",
+                "index absent",
+                "Lancez l'ingestion du module Finances : python ingest.py --module finances",
+                niveau="warning",
+            )
+        )
+    return items
+
+
 def _afficher_mail_popup(st_mod: Any, mail: str) -> None:
     dialog = getattr(st_mod, "dialog", None) or getattr(st_mod, "experimental_dialog", None)
     if dialog:
@@ -83,13 +157,73 @@ def _afficher_mail_popup(st_mod: Any, mail: str) -> None:
         st_mod.code(mail, language="text")
 
 
-def render(context: dict[str, Any]) -> list[InfoItem]:
-    st_mod = context.get("st", st)
-    session_state = context.get("session_state", st_mod.session_state)
-    _ensure_state(session_state)
+def _afficher_historique_qr(st_mod: Any, session_state: Any) -> None:
+    for message in session_state.fin_messages:
+        with st_mod.chat_message(message["role"]):
+            st_mod.markdown(message["content"])
+            if message["role"] == "assistant":
+                sources = message.get("sources", [])
+                if sources and hasattr(logic, "_afficher_sources"):
+                    logic._afficher_sources(st_mod, sources, reponse=message.get("content", ""))
+                elif sources:
+                    with st_mod.expander("Sources", expanded=False):
+                        for i, s in enumerate(sources, 1):
+                            nom = getattr(s, "nom", None) or s.get("nom") if isinstance(s, dict) else str(s)
+                            st_mod.caption(f"[{i}] {nom}")
 
-    st_mod.header("Finances")
 
+def _render_qr(st_mod: Any, session_state: Any) -> list[InfoItem]:
+    st_mod.caption(TEXTE_QR)
+    st_mod.caption(AVERTISSEMENT_QR)
+
+    _afficher_historique_qr(st_mod, session_state)
+
+    question = st_mod.chat_input("Posez votre question Finances...")
+    if question is not None:
+        question = (question or "").strip()
+        if question:
+            historique = list(session_state.fin_messages[-getattr(logic, "HISTORIQUE_MAX_MESSAGES", 6):])
+            session_state.fin_messages.append({"role": "user", "content": question})
+            with st_mod.chat_message("user"):
+                st_mod.markdown(question)
+
+            with st_mod.chat_message("assistant"):
+                base_disponible = logic._base_disponible()
+                if not base_disponible:
+                    msg = getattr(logic, "MESSAGE_SANS_RESULTAT", None) or "Base Finances introuvable. Lancez l'ingestion du module Finances : python ingest.py --module finances"
+                    st_mod.error(msg)
+                else:
+                    try:
+                        with st_mod.spinner("Recherche dans la base Finances..."):
+                            resultat = logic.repondre(
+                                question,
+                                _vectorstore(),
+                                _llm(),
+                                historique=historique,
+                            )
+                        st_mod.markdown(resultat["reponse"])
+                        sources = resultat.get("sources", [])
+                        if sources and hasattr(logic, "_afficher_sources"):
+                            logic._afficher_sources(st_mod, sources, reponse=resultat.get("reponse", ""))
+                        session_state.fin_messages.append(
+                            {
+                                "role": "assistant",
+                                "content": resultat["reponse"],
+                                "sources": sources,
+                            }
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.exception("Echec de la generation Finances")
+                        st_mod.error(
+                            "Impossible d'interroger la base Finances. "
+                            f"Vérifiez qu'Ollama est démarré sur {getattr(logic, 'OLLAMA_BASE_URL', 'http://127.0.0.1:11434')}.\n\n"
+                            f"Détail : {exc}"
+                        )
+
+    return _collect_qr_infos(session_state)
+
+
+def _render_declaration_tva(st_mod: Any, session_state: Any) -> list[InfoItem]:
     col1, col2, col3 = st_mod.columns(3)
     with col1:
         etablissement = st_mod.selectbox("Établissement", list(core.ETABLISSEMENTS), key="fin_etab")
@@ -344,3 +478,22 @@ def render(context: dict[str, Any]) -> list[InfoItem]:
     # infos footer
     fichiers_footer = core.trouver_fichiers(etablissement, annee, mois)
     return _collect_infos(session_state, etablissement, annee, mois, fichiers_footer, statut=statut_res)
+
+
+def render(context: dict[str, Any]) -> list[InfoItem]:
+    st_mod = context.get("st", st)
+    session_state = context.get("session_state", st_mod.session_state)
+    _ensure_state(session_state)
+
+    sous_vue = st_mod.radio(
+        "Section Finances",
+        SOUS_VUES,
+        horizontal=True,
+        key="fin_sous_vue",
+        label_visibility="collapsed",
+    )
+    st_mod.header(sous_vue)
+
+    if sous_vue == "Q&R":
+        return _render_qr(st_mod, session_state)
+    return _render_declaration_tva(st_mod, session_state)
