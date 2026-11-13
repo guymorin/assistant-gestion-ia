@@ -1107,7 +1107,8 @@ def main() -> None:
                     st.rerun()
             if not _base_disponible():
                 st.warning(
-                    "Base RH introuvable : seules les pieces jointes seront utilisees."
+                    "Base RH introuvable (chroma_db/rh) : seules les pieces jointes seront utilisees. "
+                    "Lancez l'ingestion du module RH (python ingest.py --module rh)."
                 )
 
             st.divider()
@@ -1180,8 +1181,8 @@ def main() -> None:
             base_disponible = _base_disponible()
             if not base_disponible and index_pj.est_vide():
                 st.error(
-                    "Base vectorielle introuvable dans ./chroma_db et aucun fichier "
-                    "joint. Lancez d'abord : python ingest.py"
+                    "Base RH introuvable dans ./chroma_db/rh et aucun fichier "
+                    "joint. Lancez d'abord l'ingestion du module RH : python ingest.py --module rh"
                 )
                 return
             utilise_pieces_jointes = not index_pj.est_vide()

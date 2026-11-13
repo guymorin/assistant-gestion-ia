@@ -95,7 +95,7 @@ def _collect_rh_infos(session_state: Any, langue: str) -> list[InfoItem]:
                 "rh_disponibilite",
                 "État RH",
                 "non prêt",
-                "Ni base RH ni pièce jointe disponible : ajoutez des pièces jointes ou lancez l’ingestion (python ingest.py).",
+                "Ni base RH ni pièce jointe disponible : ajoutez des pièces jointes ou lancez l’ingestion du module RH (python ingest.py --module rh).",
                 niveau="warning",
             )
         )
@@ -116,27 +116,11 @@ def _afficher_historique(st_mod: Any, session_state: Any) -> None:
                 )
 
 
-def _render_rh_body(context: dict[str, Any]) -> list[InfoItem]:
-    st_mod = context.get("st", st)
-    session_state = context.get("session_state", st_mod.session_state)
-    langue = logic.normaliser_langue(context.get("langue") or session_state.get("langue") or logic.LANGUE_DEFAUT)
-    session_state.langue = langue  # compat avec logique existante
+def render_pieces_jointes(st_mod: Any, session_state: Any, *, expanded: bool = True) -> None:
+    """Affiche le bloc de gestion des pièces jointes RH (barre latérale droite)."""
     _ensure_state(session_state)
     index_pj = session_state.rh_pieces_jointes
-
-    st_mod.header("RH")
-    st_mod.caption(
-        "Posez vos questions RH (droit du travail, convention collective de la "
-        "restauration rapide, contrats, paie, absences, Odoo...) : les reponses "
-        "sont fondees sur les documents indexes, avec leurs sources."
-    )
-    st_mod.caption(
-        "⚠️ Reponse generee automatiquement : verifiez toujours les sources "
-        "affichees avant toute decision juridique ou disciplinaire."
-    )
-
-    # Contrôles propres à la vue RH (conservés dans la vue)
-    with st_mod.expander("Pièces jointes et conversation", expanded=True):
+    with st_mod.expander("Pièces jointes", expanded=expanded):
         noms_pj = index_pj.noms()
         if not noms_pj:
             st_mod.caption("Aucun fichier joint (PDF, TXT, Markdown).")
@@ -153,14 +137,37 @@ def _render_rh_body(context: dict[str, Any]) -> list[InfoItem]:
                 for nom in list(index_pj.noms()):
                     index_pj.retirer(nom)
                 st_mod.rerun()
-        if st_mod.button("Effacer la conversation", key="rh_effacer"):
-            session_state.rh_messages = []
-            st_mod.rerun()
+        spacer, col_effacer = st_mod.columns([1, 1])
+        with col_effacer:
+            if st_mod.button("Effacer la conversation", key="rh_effacer", use_container_width=True):
+                session_state.rh_messages = []
+                st_mod.rerun()
         if not logic._base_disponible():
             st_mod.warning(
-                "Base RH introuvable : seules les pieces jointes seront utilisees."
+                "Base RH introuvable (chroma_db/rh) : seules les pieces jointes seront utilisees. "
+                "Lancez l'ingestion du module RH (python ingest.py --module rh)."
             )
 
+
+def _render_rh_body(context: dict[str, Any]) -> list[InfoItem]:
+    st_mod = context.get("st", st)
+    session_state = context.get("session_state", st_mod.session_state)
+    langue = logic.normaliser_langue(context.get("langue") or session_state.get("langue") or logic.LANGUE_DEFAUT)
+    _ensure_state(session_state)
+    index_pj = session_state.rh_pieces_jointes
+
+    st_mod.header("RH")
+    st_mod.caption(
+        "Posez vos questions RH (droit du travail, convention collective de la "
+        "restauration rapide, contrats, paie, absences, Odoo...) : les reponses "
+        "sont fondees sur les documents indexes, avec leurs sources."
+    )
+    st_mod.caption(
+        "⚠️ Reponse generee automatiquement : verifiez toujours les sources "
+        "affichees avant toute decision juridique ou disciplinaire."
+    )
+
+    # Les contrôles « Pièces jointes » sont rendus dans la barre latérale droite du portail.
     _afficher_historique(st_mod, session_state)
 
     saisie = st_mod.chat_input(
@@ -201,8 +208,8 @@ def _render_rh_body(context: dict[str, Any]) -> list[InfoItem]:
                     base_disponible = logic._base_disponible()
                     if not base_disponible and index_pj.est_vide():
                         st_mod.error(
-                            "Base vectorielle introuvable dans ./chroma_db et aucun fichier "
-                            "joint. Lancez d'abord : python ingest.py"
+                            "Base RH introuvable dans ./chroma_db/rh et aucun fichier "
+                            "joint. Lancez d'abord l'ingestion du module RH : python ingest.py --module rh"
                         )
                     else:
                         utilise_pieces_jointes = not index_pj.est_vide()
