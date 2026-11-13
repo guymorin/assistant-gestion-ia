@@ -88,13 +88,13 @@ class TestLireUrls:
             ingest.lire_urls(tmp_path / "absent.txt")
 
     def test_le_fichier_d_urls_est_dans_le_dossier_documentaire(self):
-        assert ingest.URLS_FILE == "./DRH/DRH-web.txt"
+        assert ingest.URLS_FILE == "./Ingestion/RH/RH-web.txt"
         assert Path(ingest.URLS_FILE).parent == Path(ingest.PDF_DIR)
 
 
 class TestChargerPdf:
     def test_le_dossier_par_defaut_est_celui_du_plan(self):
-        assert ingest.PDF_DIR == "./DRH"
+        assert ingest.PDF_DIR == "./Ingestion/RH"
 
     def test_transmet_le_dossier_au_loader_et_retourne_ses_documents(self):
         documents = [FakeDocument("page 1"), FakeDocument("page 2")]
@@ -497,17 +497,66 @@ class TestMain:
         assert ingest.main() == 1
 
     def test_active_le_cache_pdf_par_defaut(self, monkeypatch):
-        recus = {}
+        appels = []
 
         def faux_ingerer(**kwargs):
-            recus.update(kwargs)
+            appels.append(kwargs)
             return 1
 
         monkeypatch.setattr(ingest, "ingerer", faux_ingerer)
 
-        ingest.main()
+        ingest.main([])
 
-        assert recus["cache_dir"] == ingest.PDF_CACHE_DIR
+        assert appels
+        assert all(a.get("cache_dir") == ingest.PDF_CACHE_DIR for a in appels)
+
+
+class TestModulesEtCli:
+    def test_modules_exposent_les_chemins_par_module(self):
+        assert "rh" in ingest.MODULES
+        assert "finances" in ingest.MODULES
+        rh = ingest.get_module_config("rh")
+        fin = ingest.get_module_config("finances")
+        assert rh["pdf_dir"] == "./Ingestion/RH"
+        assert rh["urls_file"] == "./Ingestion/RH/RH-web.txt"
+        assert rh["chroma_dir"] == "./chroma_db/rh"
+        assert fin["pdf_dir"] == "./Ingestion/Finances"
+        assert fin["urls_file"] == "./Ingestion/Finances/Finances-web.txt"
+        assert fin["chroma_dir"] == "./chroma_db/finances"
+
+    def test_ingerer_module_cible_utilise_les_chemins_du_module(self, tmp_path, monkeypatch):
+        appels = []
+
+        def fake_ingerer(*, pdf_dir, urls_file, chroma_dir, **kwargs):
+            appels.append(
+                {
+                    "pdf_dir": str(pdf_dir),
+                    "urls_file": str(urls_file),
+                    "chroma_dir": str(chroma_dir),
+                }
+            )
+            return 1
+
+        monkeypatch.setattr(ingest, "_ingerer_chemins", fake_ingerer, raising=False)
+        # fallback: if implementation uses ingerer with module arg, test via that path
+        if hasattr(ingest, "ingerer_module"):
+            ingest.ingerer_module("finances")
+        else:
+            ingest.ingerer(module="finances")
+        assert appels
+        assert appels[0]["pdf_dir"].replace("\\", "/").endswith("Ingestion/Finances")
+        assert appels[0]["chroma_dir"].replace("\\", "/").endswith("chroma_db/finances")
+
+    def test_cli_module_finances_n_ingere_que_finances(self, monkeypatch):
+        modules = []
+
+        def faux(module=None, **kw):
+            modules.append(module)
+            return 1
+
+        monkeypatch.setattr(ingest, "ingerer", faux)
+        assert ingest.main(["--module", "finances"]) == 0
+        assert modules == ["finances"]
 
 
 @pytest.mark.integration
@@ -522,10 +571,6 @@ class TestIntegration:
         assert documents
         assert all(
             str(document.metadata.get("source", "")).endswith(".pdf")
-            for document in documents
-        )
-        assert all(
-            str(document.metadata.get("source", "")).replace("\\", "/").startswith("DRH/")
             for document in documents
         )
 

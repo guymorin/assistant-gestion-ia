@@ -23,13 +23,38 @@ from typing import Any, Callable
 logger = logging.getLogger(__name__)
 
 # Configuration
-PDF_DIR = "./DRH"
-URLS_FILE = f"{PDF_DIR}/DRH-web.txt"
-CHROMA_DIR = "./chroma_db"
 PDF_CACHE_DIR = "./.cache/pdf"
 MANIFESTE_INGESTION = "ingestion.json"
 EMBEDDING_MODEL = "nomic-embed-text"
 OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+
+MODULES = {
+    "rh": {
+        "pdf_dir": "./Ingestion/RH",
+        "urls_file": "./Ingestion/RH/RH-web.txt",
+        "chroma_dir": "./chroma_db/rh",
+    },
+    "finances": {
+        "pdf_dir": "./Ingestion/Finances",
+        "urls_file": "./Ingestion/Finances/Finances-web.txt",
+        "chroma_dir": "./chroma_db/finances",
+    },
+}
+
+DEFAULT_MODULE = "rh"
+
+
+def get_module_config(module: str) -> dict[str, str]:
+    """Retourne la configuration d'ingestion/indexation pour un module."""
+    if module not in MODULES:
+        raise ValueError(f"Module inconnu : {module}")
+    return dict(MODULES[module])
+
+
+# Compatibilité / défauts alignés sur le module RH
+PDF_DIR = MODULES[DEFAULT_MODULE]["pdf_dir"]
+URLS_FILE = MODULES[DEFAULT_MODULE]["urls_file"]
+CHROMA_DIR = MODULES[DEFAULT_MODULE]["chroma_dir"]
 
 # Decoupage adapte aux textes juridiques
 CHUNK_SIZE = 1000
@@ -318,11 +343,11 @@ def enregistrer_manifeste_ingestion(
     return chemin
 
 
-def ingerer(
-    pdf_dir: str | Path = PDF_DIR,
-    urls_file: str | Path = URLS_FILE,
-    chroma_dir: str | Path = CHROMA_DIR,
+def _ingerer_chemins(
     *,
+    pdf_dir: str | Path,
+    urls_file: str | Path,
+    chroma_dir: str | Path,
     pdf_loader_factory: Callable[[str], Any] | None = None,
     web_loader_factory: Callable[[str], Any] | None = None,
     splitter: Any | None = None,
@@ -330,7 +355,7 @@ def ingerer(
     store_factory: Callable[..., Any] | None = None,
     cache_dir: str | Path | None = None,
 ) -> int:
-    """Execute le pipeline complet et retourne le nombre de morceaux indexes."""
+    """Execute le pipeline complet pour des chemins explicites."""
     documents_pdf = charger_pdf(
         pdf_dir, loader_factory=pdf_loader_factory, cache_dir=cache_dir
     )
@@ -364,15 +389,76 @@ def ingerer(
     return len(chunks)
 
 
-def main() -> int:
+def ingerer(
+    pdf_dir: str | Path = PDF_DIR,
+    urls_file: str | Path = URLS_FILE,
+    chroma_dir: str | Path = CHROMA_DIR,
+    *,
+    module: str | None = None,
+    pdf_loader_factory: Callable[[str], Any] | None = None,
+    web_loader_factory: Callable[[str], Any] | None = None,
+    splitter: Any | None = None,
+    embeddings: Any | None = None,
+    store_factory: Callable[..., Any] | None = None,
+    cache_dir: str | Path | None = None,
+) -> int:
+    """Execute le pipeline complet et retourne le nombre de morceaux indexes.
+
+    Si ``module`` est fourni, ses chemins sont utilisés (les arguments
+    explicites de chemins les remplacent si différents des valeurs par défaut).
+    """
+    if module is not None:
+        cfg = get_module_config(module)
+        if str(pdf_dir) == str(PDF_DIR):
+            pdf_dir = cfg["pdf_dir"]
+        if str(urls_file) == str(URLS_FILE):
+            urls_file = cfg["urls_file"]
+        if str(chroma_dir) == str(CHROMA_DIR):
+            chroma_dir = cfg["chroma_dir"]
+    return _ingerer_chemins(
+        pdf_dir=pdf_dir,
+        urls_file=urls_file,
+        chroma_dir=chroma_dir,
+        pdf_loader_factory=pdf_loader_factory,
+        web_loader_factory=web_loader_factory,
+        splitter=splitter,
+        embeddings=embeddings,
+        store_factory=store_factory,
+        cache_dir=cache_dir,
+    )
+
+
+def ingerer_module(module: str, **kwargs) -> int:
+    """Ingère un module cible en utilisant sa configuration."""
+    cfg = get_module_config(module)
+    return _ingerer_chemins(
+        pdf_dir=cfg["pdf_dir"],
+        urls_file=cfg["urls_file"],
+        chroma_dir=cfg["chroma_dir"],
+        **kwargs,
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
     """Point d'entree CLI : code de sortie 0 si l'ingestion a produit des morceaux."""
+    import argparse
+
     logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
+    parser = argparse.ArgumentParser(add_help=True)
+    parser.add_argument(
+        "--module",
+        choices=["rh", "finances", "all"],
+        default="all",
+        help="Module à ingérer (rh, finances ou all). Défaut: all.",
+    )
+    args, _ = parser.parse_known_args(argv)
+    modules = ["rh", "finances"] if args.module == "all" else [args.module]
     try:
-        total = ingerer(cache_dir=PDF_CACHE_DIR)
+        totals = [ingerer(module=m, cache_dir=PDF_CACHE_DIR) for m in modules]
     except Exception:  # noqa: BLE001 - le CLI doit toujours renvoyer un code de sortie
         logger.exception("Echec de l'ingestion")
         return 1
-    return 0 if total else 1
+    return 0 if any(totals) else 1
 
 
 if __name__ == "__main__":
