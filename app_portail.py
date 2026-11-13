@@ -38,10 +38,18 @@ def main() -> None:
     init_global_state(st.session_state)
     if "vue_active" not in st.session_state or st.session_state.get("vue_active") not in ("rh", "finances"):
         st.session_state["vue_active"] = _vue_initiale()
-    # vues réelles branchées aux tâches suivantes
+    # vues branchées progressivement
+    try:
+        from rh.view import render as render_rh
+    except Exception:
+        render_rh = _placeholder_view("RH")
+    try:
+        from finances.view import render as render_finances
+    except Exception:
+        render_finances = _placeholder_view("Finances")
     views = {
-        "rh": _placeholder_view("RH"),
-        "finances": _placeholder_view("Finances"),
+        "rh": render_rh,
+        "finances": render_finances,
     }
     run_portail(views, st.session_state, st)
 
