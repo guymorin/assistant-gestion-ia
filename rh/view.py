@@ -6,7 +6,7 @@ from typing import Any
 import streamlit as st
 
 from pieces_jointes import IndexPiecesJointes
-from shared.info import InfoItem, normalize_info_value
+from shared.info import InfoItem
 
 from . import logic
 

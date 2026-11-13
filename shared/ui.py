@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import traceback
 from typing import Any, Callable
 
 from .info import InfoItem, collect_footer_infos, normalize_info_value
