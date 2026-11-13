@@ -1,5 +1,6 @@
 # Données RH et dérivés d'indexation (confidentiel)
-DRH/
+Finances/
+RH/
 chroma_db/
 .cache/
 
@@ -32,3 +33,7 @@ __pycache__/
 htmlcov/
 .DS_Store
 Thumbs.db
+
+# Données / notes locales (non versionnées)
+Finances-TVA/
+Fixes-needed.md
