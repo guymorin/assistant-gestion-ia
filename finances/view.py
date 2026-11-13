@@ -99,26 +99,54 @@ def _collect_qr_infos(session_state: Any) -> list[InfoItem]:
     infos_ing = logic.infos_ingestion()
     date_ing = infos_ing.get("date")
     chunks = infos_ing.get("chunks")
+
+    module_dir = Path(getattr(logic, "CHROMA_DIR"))
+    chemins_base = getattr(logic, "_chemins_base", None)
+    candidats = chemins_base(module_dir) if callable(chemins_base) else [module_dir]
+    base_module = (module_dir / "chroma.sqlite3").is_file()
+    base_trouvee = next(
+        (dossier for dossier in candidats if (Path(dossier) / "chroma.sqlite3").is_file()),
+        None,
+    )
+    fallback_global = base_ok and not base_module and base_trouvee is not None and Path(base_trouvee) != module_dir
+
     if date_ing is None:
         ing_val = "inconnue"
     else:
         ing_val = date_ing.strftime("%d/%m/%Y %H:%M")
         if isinstance(chunks, int):
             ing_val += f" ({chunks:,} extraits)".replace(",", " ")
+
+    base_val = "disponible" if base_ok else "indisponible"
+    base_aide = "Indique si l'index des documents Finances (Ingestion/Finances) est présent."
+    ing_libelle = "Dernière ingestion Finances"
+    ing_aide = "Date de la dernière ingestion du module Finances."
+    ing_niveau = "info" if date_ing else "warning"
+
+    if fallback_global:
+        base_val = "disponible (base globale héritée)"
+        base_aide = (
+            "Un index ChromaDB global historique est détecté ; "
+            "pour un index dédié Finances, lancez : python ingest.py --module finances"
+        )
+        ing_libelle = "Dernière ingestion (base globale)"
+        ing_aide = "Date de la dernière ingestion connue de la base globale héritée."
+        ing_niveau = "warning"
+
     items = [
         InfoItem(
             "fin_qr_base",
             "Base documentaire Finances",
-            "disponible" if base_ok else "indisponible",
-            "Indique si l'index des documents Finances (Ingestion/Finances) est présent.",
-            niveau="info" if base_ok else "warning",
+            base_val,
+            base_aide,
+            niveau="info" if base_ok and not fallback_global else "warning",
         ),
         InfoItem(
             "fin_qr_ingestion",
-            "Dernière ingestion Finances",
+            ing_libelle,
             ing_val,
-            "Date de la dernière ingestion du module Finances.",
-            niveau="info" if date_ing else "warning",
+            ing_aide,
+            niveau=ing_niveau,
         ),
         InfoItem(
             "fin_qr_modele",
@@ -480,18 +508,85 @@ def _render_declaration_tva(st_mod: Any, session_state: Any) -> list[InfoItem]:
     return _collect_infos(session_state, etablissement, annee, mois, fichiers_footer, statut=statut_res)
 
 
+def _inject_sous_menu_style(st_mod: Any) -> None:
+    st_mod.markdown(
+        """
+        <style>
+        .fin-sous-menu { margin: 0.1rem 0 0.35rem; }
+        .fin-sous-menu [data-testid="stHorizontalBlock"] { gap: 0.35rem; align-items: stretch; }
+        .fin-sous-menu [data-testid="column"] { width: auto !important; flex: 0 0 auto; min-width: 0; }
+        .fin-sous-menu [data-testid="baseButton-secondary"],
+        .fin-sous-menu [data-testid="baseButton-primary"] {
+            border-radius: var(--radius-pill, 999px);
+            padding: 0.42rem 1rem;
+            font-size: 0.92rem;
+            font-weight: 500;
+            line-height: 1.2;
+            border: 1px solid var(--line, #DDD7CB);
+            background: var(--surface, #FFFFFF);
+            color: var(--ink-muted, #5E665F);
+            box-shadow: none;
+            transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+        }
+        .fin-sous-menu [data-testid="baseButton-secondary"]:hover {
+            border-color: #c9c1b2;
+            background: #ffffff;
+            color: var(--ink, #1F2421);
+        }
+        .fin-sous-menu [data-testid="baseButton-primary"],
+        .fin-sous-menu [data-testid="baseButton-primary"]:hover,
+        .fin-sous-menu [data-testid="baseButton-primary"]:focus {
+            border: 1px solid var(--green, #2C5B29);
+            background: var(--green, #2C5B29);
+            color: #ffffff;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_sous_menu(st_mod: Any, session_state: Any) -> str:
+    _inject_sous_menu_style(st_mod)
+    st_mod.markdown('<div class="fin-sous-menu">', unsafe_allow_html=True)
+
+    segmented = getattr(st_mod, "segmented_control", None) or getattr(st_mod, "pills", None)
+    if segmented is not None:
+        selection = segmented(
+            "Section Finances",
+            options=list(SOUS_VUES),
+            selection_mode="single",
+            default=session_state.fin_sous_vue,
+            key="fin_sous_vue_widget",
+            label_visibility="collapsed",
+        )
+        if selection in SOUS_VUES:
+            session_state.fin_sous_vue = selection
+    else:
+        cols = st_mod.columns([1, 1.7, 6])
+        for idx, option in enumerate(SOUS_VUES):
+            actif = session_state.fin_sous_vue == option
+            with cols[idx]:
+                if st_mod.button(
+                    option,
+                    key=f"fin_sous_vue_{idx}",
+                    type="primary" if actif else "secondary",
+                    use_container_width=True,
+                ):
+                    session_state.fin_sous_vue = option
+
+    st_mod.markdown("</div>", unsafe_allow_html=True)
+    if session_state.fin_sous_vue not in SOUS_VUES:
+        session_state.fin_sous_vue = SOUS_VUE_DEFAUT
+    return session_state.fin_sous_vue
+
+
 def render(context: dict[str, Any]) -> list[InfoItem]:
     st_mod = context.get("st", st)
     session_state = context.get("session_state", st_mod.session_state)
     _ensure_state(session_state)
 
-    sous_vue = st_mod.radio(
-        "Section Finances",
-        SOUS_VUES,
-        horizontal=True,
-        key="fin_sous_vue",
-        label_visibility="collapsed",
-    )
+    sous_vue = _render_sous_menu(st_mod, session_state)
     st_mod.header(sous_vue)
 
     if sous_vue == "Q&R":

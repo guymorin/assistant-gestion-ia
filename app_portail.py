@@ -6,7 +6,7 @@ from typing import Any
 import streamlit as st
 
 from shared.info import InfoItem
-from shared.ui import init_global_state, run_portail
+from shared.ui import VUE_AIDE, VUE_PARAMETRES, init_global_state, run_portail
 
 
 def _vue_initiale() -> str:
@@ -19,7 +19,7 @@ def _vue_initiale() -> str:
         if isinstance(qp, list):
             qp = qp[0] if qp else ""
         qp = str(qp).strip().lower()
-        if qp in {"rh", "finances"}:
+        if qp in {"rh", "finances", VUE_PARAMETRES, VUE_AIDE}:
             return qp
     except Exception:
         pass
@@ -34,10 +34,29 @@ def _placeholder_view(nom: str):
 
 
 def main() -> None:
-    st.set_page_config(page_title="Portail RH / Finances", page_icon="🧭", layout="wide")
+    port = os.environ.get("ASSISTANT_PORTAIL_PORT", "8501")
+    help_url = f"http://localhost:{port}/?vue=aide"
+    st.set_page_config(
+        page_title="Assistant de Gestion - IA",
+        page_icon="assets/logo_hee.svg",
+        layout="wide",
+        menu_items={
+            "Get help": help_url,
+            "About": (
+                "Assistant de Gestion - IA\n\n"
+                "Paramètres (langue, pièces de TVA, apparence) et aide accessibles depuis le menu.\n\n"
+                "Made with Streamlit"
+            ),
+        },
+    )
     init_global_state(st.session_state)
-    if "vue_active" not in st.session_state or st.session_state.get("vue_active") not in ("rh", "finances"):
-        st.session_state["vue_active"] = _vue_initiale()
+    vue_init = _vue_initiale()
+    if vue_init == VUE_PARAMETRES:
+        st.session_state["vue_speciale"] = VUE_PARAMETRES
+    elif vue_init == VUE_AIDE:
+        st.session_state["vue_speciale"] = VUE_AIDE
+    elif "vue_active" not in st.session_state or st.session_state.get("vue_active") not in ("rh", "finances"):
+        st.session_state["vue_active"] = vue_init
     # vues branchées progressivement
     try:
         from rh.view import render as render_rh
