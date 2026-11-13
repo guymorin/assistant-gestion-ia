@@ -2,12 +2,12 @@ import pytest
 from pathlib import Path
 
 def test_import_app_tva():
-    import app_tva
+    import app_finances_tva as app_tva
 
-    assert app_tva.COMPTABLE_DIR == "./Comptable"
+    assert app_tva.COMPTABLE_DIR == "./Finances"
 
 
-import app_tva
+import app_finances_tva as app_tva
 
 
 def test_normaliser_montant_simple():
@@ -413,12 +413,11 @@ def test_generer_mail_comptable():
         "obypay": "obypay_monthly_2026-09.xlsx",
     }
     mail = app_tva.generer_mail_comptable("HEE-REP-93100", 2026, 9, fichiers)
-    assert "HEE République (HEE-REP-93100)" in mail
-    assert "Septembre 2026" in mail
+    assert mail.splitlines()[0].startswith("Objet : HEE - TVA Septembre 2026")
     assert "Republique-Caisse-2026-09.pdf" in mail
     assert "Republique-Banque-2026-09.pdf" in mail
     assert "obypay_monthly_2026-09.xlsx" in mail
-    assert "Facture catering : Non" in mail
+    assert "catering" not in mail.lower()
     assert "fournisseur" not in mail.lower()
 
 
@@ -431,7 +430,11 @@ def test_generer_mail_catering_et_piece_manquante():
         catering={"present": True, "client": "ACME", "montant_ht": 1000.0, "tva": 100.0},
     )
     assert "Rapport de caisse : à fournir" in mail
-    assert "Facture catering : Oui — ACME — HT 1 000,00 €, TVA 100,00 € (TTC 1 100,00 €)" in mail
+    assert "Attention il y a des ventes en catering ce mois-ci" in mail
+    assert "ACME" in mail
+    assert "1 000,00 €" in mail  # HT
+    assert "HT" in mail
+    assert "TTC" in mail
 
 
 def test_generer_mail_comptable_structure_lisible():
@@ -446,8 +449,7 @@ def test_generer_mail_comptable_structure_lisible():
         },
     )
     lignes = mail.splitlines()
-    assert lignes[0].startswith("Objet : Déclaration de TVA — HEE Marceau (HEE-MAR-93100)")
-    assert "Octobre 2026" in lignes[0]
+    assert lignes[0].startswith("Objet : HEE COFFEE SHOP - TVA Octobre 2026")
     # Les blocs sont séparés par une ligne vide.
     assert "" in lignes
     texte_minuscules = mail.lower()
@@ -521,10 +523,10 @@ def test_verifier_rapprochement_credit_tva():
 def test_verifier_rapprochement_catering():
     res = app_tva.verifier_rapprochement(
         CAISSE_REP, BANQUE_REP, OBYPAY_REP, 500.0, 0.0,
-        catering={"present": True, "client": "ACME", "montant_ht": 1000.0, "tva": 100.0},
+        catering={"present": True, "client": "", "montant_ht": 0.0, "tva": 0.0},
     )
-    assert res["tva_collectee"] == 2293.71
-    assert res["total_ventes_attendu"] == 28542.50
+    assert res["tva_collectee"] == 2193.71
+    assert res["total_ventes_attendu"] == 27542.50
 
 
 def test_verifier_rapprochement_incomplet():
@@ -536,9 +538,9 @@ def test_verifier_rapprochement_incomplet():
 def test_verifier_rapprochement_caisse_absente_avec_catering():
     res = app_tva.verifier_rapprochement(
         None, None, None, 0.0, 0.0,
-        catering={"present": True, "client": "", "montant_ht": 1000.0, "tva": 100.0},
+        catering={"present": True, "client": "", "montant_ht": 0.0, "tva": 0.0},
     )
-    assert res["tva_collectee"] == 100.0
+    assert res["tva_collectee"] == 0.0
     assert res["statut"] == "INCOMPLET"
 
 
@@ -661,3 +663,27 @@ def test_integration_rapprochement_rep_septembre():
 @pytest.mark.integration
 def test_integration_dernier_mois_disponible_rep():
     assert app_tva.dernier_mois_disponible("HEE-REP-93100") == (2026, 9)
+
+
+def test_generer_mail_objet_format_sans_etablissement_parenthese():
+    mail = app_tva.generer_mail_comptable(
+        "HEE-REP-93100", 2026, 5,
+        {"caisse": "c.pdf", "banque": "b.pdf", "obypay": "o.xlsx"},
+        catering=None,
+    )
+    assert "Objet : " in mail
+    assert " - TVA Mai 2026" in mail.splitlines()[0]
+    assert "Déclaration de TVA —" not in mail
+    assert "(HEE-REP-93100)" not in mail.splitlines()[0]
+
+
+def test_ligne_catering_absent_ne_produit_pas_de_ligne_non():
+    assert app_tva._ligne_catering(None) == "" or app_tva._ligne_catering(None) is None
+    assert app_tva._ligne_catering({"present": False}) == "" or app_tva._ligne_catering({"present": False}) is None
+
+
+def test_ligne_catering_present_message_attention_et_details():
+    ligne = app_tva._ligne_catering({"present": True, "client": "X", "montant_ht": 100.0, "tva": 10.0})
+    assert "Attention il y a des ventes en catering ce mois-ci" in ligne
+    assert "X" in ligne and "HT" in ligne
+    assert "Facture catering : Non" not in ligne
