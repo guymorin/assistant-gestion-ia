@@ -3,15 +3,22 @@
 # tout en conservant les options spectateur (theme, impression, a propos).
 toolbarMode = "viewer"
 
-# Un theme personnalise est necessaire pour le vert de la marque. Streamlit
-# ne propose le selecteur Systeme / Clair / Sombre que si les variantes
-# claire et sombre sont explicitement definies : sans [theme.light] et
-# [theme.dark], l'option d'affichage disparait du menu.
+# Palette alignée sur les tokens --green / --paper / --ink
 [theme]
-primaryColor = "rgb(66, 207, 80)"
+primaryColor = "#2C5B29"
+backgroundColor = "#F6F2EA"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1F2421"
+font = "sans serif"
 
 [theme.light]
-primaryColor = "rgb(66, 207, 80)"
+primaryColor = "#2C5B29"
+backgroundColor = "#F6F2EA"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1F2421"
 
 [theme.dark]
-primaryColor = "rgb(66, 207, 80)"
+primaryColor = "#2C5B29"
+backgroundColor = "#1F2421"
+secondaryBackgroundColor = "#2A302C"
+textColor = "#F6F2EA"
