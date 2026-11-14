@@ -1,8 +1,8 @@
-"""Tests TDD de l'application Streamlit RH (app.py).
+"""Tests TDD de l'application Streamlit RH (app_rh.py).
 
 Phase RED : ces tests decrivent le comportement attendu de l'interface et
 de la logique RAG avant toute implementation. Ils doivent echouer tant que
-app.py n'existe pas.
+app_rh.py n'existe pas.
 
 Les tests unitaires n'appellent ni le reseau, ni Ollama, ni un vrai
 ChromaDB : le vectorstore et le LLM sont injectes. Les tests d'integration
@@ -19,7 +19,7 @@ import pytest
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage
 
-import app
+import app_rh
 
 
 class FakeVectorStore:
@@ -99,19 +99,19 @@ class TestNommerSource:
         }
 
         assert (
-            app.nommer_source(metadata)
+            app_rh.nommer_source(metadata)
             == "referentiel_gestion_des_ressources_humaines.pdf (p. 3)"
         )
 
     def test_utilise_page_plus_un_si_page_label_est_absent(self):
         metadata = {"source": "DRH/code_du_travail.pdf", "page": 0}
 
-        assert app.nommer_source(metadata) == "code_du_travail.pdf (p. 1)"
+        assert app_rh.nommer_source(metadata) == "code_du_travail.pdf (p. 1)"
 
     def test_retourne_le_nom_du_pdf_sans_page_si_absente(self):
         metadata = {"source": "DRH/convention_collective.pdf"}
 
-        assert app.nommer_source(metadata) == "convention_collective.pdf"
+        assert app_rh.nommer_source(metadata) == "convention_collective.pdf"
 
     def test_retourne_l_url_pour_une_source_web(self):
         metadata = {
@@ -119,12 +119,12 @@ class TestNommerSource:
         }
 
         assert (
-            app.nommer_source(metadata)
+            app_rh.nommer_source(metadata)
             == "https://www.cnil.fr/fr/la-gestion-des-ressources-humaines"
         )
 
     def test_retourne_un_libelle_explicite_sans_source(self):
-        assert app.nommer_source({}) == "source inconnue"
+        assert app_rh.nommer_source({}) == "source inconnue"
 
     def test_prefixe_une_piece_jointe_avec_sa_page(self):
         metadata = {
@@ -134,7 +134,7 @@ class TestNommerSource:
             "origine": "piece_jointe",
         }
 
-        assert app.nommer_source(metadata) == "Piece jointe : note.pdf (p. 1)"
+        assert app_rh.nommer_source(metadata) == "Piece jointe : note.pdf (p. 1)"
 
 
 class TestExtraireSources:
@@ -145,7 +145,7 @@ class TestExtraireSources:
             document("extrait a2", source="DRH/a.pdf", page="1", page_label="2"),
         ]
 
-        sources = app.extraire_sources(documents)
+        sources = app_rh.extraire_sources(documents)
 
         assert [source["nom"] for source in sources] == [
             "a.pdf (p. 2)",
@@ -160,19 +160,19 @@ class TestExtraireSources:
             document("texte", source="https://exemple.fr/rh"),
         ]
 
-        sources = app.extraire_sources(documents)
+        sources = app_rh.extraire_sources(documents)
 
         assert [source["type"] for source in sources] == ["pdf", "web"]
 
     def test_retourne_une_liste_vide_sans_document(self):
-        assert app.extraire_sources([]) == []
+        assert app_rh.extraire_sources([]) == []
 
     def test_marque_une_source_comme_piece_jointe(self):
         documents = [
             document("texte", source="note.txt", origine="piece_jointe"),
         ]
 
-        sources = app.extraire_sources(documents)
+        sources = app_rh.extraire_sources(documents)
 
         assert sources[0]["type"] == "piece_jointe"
 
@@ -196,10 +196,10 @@ class TestConstruireContexte:
             "Le teletravail est encadre."
         )
 
-        assert app.construire_contexte(documents) == attendu
+        assert app_rh.construire_contexte(documents) == attendu
 
     def test_retourne_une_chaine_vide_sans_document(self):
-        assert app.construire_contexte([]) == ""
+        assert app_rh.construire_contexte([]) == ""
 
 
 class TestConstruirePrompt:
@@ -213,7 +213,7 @@ class TestConstruirePrompt:
             )
         ]
 
-        prompt = app.construire_prompt("Quelle est la duree du conge maternite ?", documents)
+        prompt = app_rh.construire_prompt("Quelle est la duree du conge maternite ?", documents)
 
         assert "Quelle est la duree du conge maternite ?" in prompt
         assert "Le conge maternite est de 16 semaines." in prompt
@@ -224,7 +224,7 @@ class TestConstruirePrompt:
     def test_decrit_la_couverture_rh_et_la_convention_restauration_rapide(self):
         documents = [document("texte", source="DRH/a.pdf", page="0")]
 
-        prompt = app.construire_prompt("Comment recruter ?", documents)
+        prompt = app_rh.construire_prompt("Comment recruter ?", documents)
 
         assert "Odoo" in prompt
         assert "IDCC 1501" in prompt
@@ -238,9 +238,9 @@ class TestConstruirePrompt:
     def test_demande_une_reponse_en_francais_par_defaut(self):
         documents = [document("texte", source="DRH/a.pdf", page="0")]
 
-        prompt = app.construire_prompt("Quelle est la duree du conge ?", documents)
+        prompt = app_rh.construire_prompt("Quelle est la duree du conge ?", documents)
 
-        assert app.LANGUES["fr"]["consigne"] in prompt
+        assert app_rh.LANGUES["fr"]["consigne"] in prompt
 
     @pytest.mark.parametrize(
         "langue",
@@ -249,16 +249,16 @@ class TestConstruirePrompt:
     def test_transmet_la_langue_demandee_au_llm(self, langue):
         documents = [document("texte", source="DRH/a.pdf", page="0")]
 
-        prompt = app.construire_prompt(
+        prompt = app_rh.construire_prompt(
             "Quelle est la duree du conge ?", documents, langue=langue
         )
 
-        assert app.LANGUES[langue]["consigne"] in prompt
+        assert app_rh.LANGUES[langue]["consigne"] in prompt
 
     def test_redige_le_prompt_anglais_en_anglais(self):
         documents = [document("texte", source="DRH/a.pdf", page="0")]
 
-        prompt = app.construire_prompt(
+        prompt = app_rh.construire_prompt(
             "What is the notice period?", documents, langue="en"
         )
 
@@ -270,7 +270,7 @@ class TestConstruirePrompt:
     def test_redige_le_prompt_coreen_en_coreen(self):
         documents = [document("texte", source="DRH/a.pdf", page="0")]
 
-        prompt = app.construire_prompt(
+        prompt = app_rh.construire_prompt(
             "휴가 기간은 얼마입니까?", documents, langue="ko"
         )
 
@@ -282,11 +282,11 @@ class TestConstruirePrompt:
     def test_rep_une_langue_inconnue_par_le_francais(self):
         documents = [document("texte", source="DRH/a.pdf", page="0")]
 
-        prompt = app.construire_prompt(
+        prompt = app_rh.construire_prompt(
             "Quelle est la duree du conge ?", documents, langue="xx"
         )
 
-        assert app.LANGUES["fr"]["consigne"] in prompt
+        assert app_rh.LANGUES["fr"]["consigne"] in prompt
 
     def test_transmet_l_historique_recent_au_llm(self):
         documents = [document("texte", source="DRH/a.pdf", page="0")]
@@ -295,7 +295,7 @@ class TestConstruirePrompt:
             {"role": "assistant", "content": "Le conge maternite dure 16 semaines."},
         ]
 
-        prompt = app.construire_prompt("Et pour un CDD ?", documents, historique=historique)
+        prompt = app_rh.construire_prompt("Et pour un CDD ?", documents, historique=historique)
 
         assert "UTILISATEUR : Quelle est la duree du conge maternite ?" in prompt
         assert "ASSISTANT : Le conge maternite dure 16 semaines." in prompt
@@ -304,8 +304,8 @@ class TestConstruirePrompt:
 
 class TestConstruireHistorique:
     def test_retourne_aucun_sans_historique(self):
-        assert app.construire_historique(None) == "Aucun."
-        assert app.construire_historique([]) == "Aucun."
+        assert app_rh.construire_historique(None) == "Aucun."
+        assert app_rh.construire_historique([]) == "Aucun."
 
     def test_formate_les_echanges_dans_l_ordre_chronologique(self):
         historique = [
@@ -313,7 +313,7 @@ class TestConstruireHistorique:
             {"role": "assistant", "content": "16 semaines."},
         ]
 
-        assert app.construire_historique(historique) == (
+        assert app_rh.construire_historique(historique) == (
             "UTILISATEUR : Quelle est la duree du conge ?\n"
             "ASSISTANT : 16 semaines."
         )
@@ -323,7 +323,7 @@ class TestConstruireHistorique:
             {"role": "user", "content": f"question {numero}"} for numero in range(10)
         ]
 
-        texte = app.construire_historique(historique, max_messages=2)
+        texte = app_rh.construire_historique(historique, max_messages=2)
 
         assert "question 8" in texte
         assert "question 9" in texte
@@ -332,7 +332,7 @@ class TestConstruireHistorique:
 
 class TestQuestionPourRecherche:
     def test_sans_historique_conserve_la_question(self):
-        assert app.question_pour_recherche("Quelle est la duree du conge ?") == (
+        assert app_rh.question_pour_recherche("Quelle est la duree du conge ?") == (
             "Quelle est la duree du conge ?"
         )
 
@@ -342,7 +342,7 @@ class TestQuestionPourRecherche:
             {"role": "assistant", "content": "16 semaines."},
         ]
 
-        assert app.question_pour_recherche("et pour un CDD ?", historique) == (
+        assert app_rh.question_pour_recherche("et pour un CDD ?", historique) == (
             "Quelle est la duree du conge maternite ? et pour un CDD ?"
         )
 
@@ -355,7 +355,7 @@ class TestQuestionPourRecherche:
             "restauration rapide ?"
         )
 
-        assert app.question_pour_recherche(question, historique) == question
+        assert app_rh.question_pour_recherche(question, historique) == question
 
 
 class TestRechercher:
@@ -363,28 +363,28 @@ class TestRechercher:
         documents = [document("a", source="DRH/a.pdf")]
         vectorstore = FakeVectorStore(documents)
 
-        resultat = app.rechercher("question rh", vectorstore)
+        resultat = app_rh.rechercher("question rh", vectorstore)
 
         assert resultat == documents
         assert vectorstore.calls == []
         assert vectorstore.mmr_calls == [
             {
                 "question": "question rh",
-                "k": app.TOP_K * app.FACTEUR_CANDIDATS,
+                "k": app_rh.TOP_K * app_rh.FACTEUR_CANDIDATS,
                 "fetch_k": max(
-                    app.FETCH_K,
-                    app.TOP_K * app.FACTEUR_CANDIDATS * 4,
+                    app_rh.FETCH_K,
+                    app_rh.TOP_K * app_rh.FACTEUR_CANDIDATS * 4,
                 ),
-                "lambda_mult": app.MMR_LAMBDA,
+                "lambda_mult": app_rh.MMR_LAMBDA,
             }
         ]
 
     def test_respecte_un_k_personnalise(self):
         vectorstore = FakeVectorStore([])
 
-        app.rechercher("question rh", vectorstore, k=7)
+        app_rh.rechercher("question rh", vectorstore, k=7)
 
-        assert vectorstore.mmr_calls[0]["k"] == 7 * app.FACTEUR_CANDIDATS
+        assert vectorstore.mmr_calls[0]["k"] == 7 * app_rh.FACTEUR_CANDIDATS
 
     def test_replie_sur_la_similarite_si_mmr_est_indisponible(self):
         class VectorStoreSansMmr:
@@ -397,39 +397,39 @@ class TestRechercher:
 
         vectorstore = VectorStoreSansMmr()
 
-        assert app.rechercher("question rh", vectorstore) == ["document"]
+        assert app_rh.rechercher("question rh", vectorstore) == ["document"]
         assert vectorstore.calls == [
             {
                 "question": "question rh",
-                "k": app.TOP_K * app.FACTEUR_CANDIDATS,
+                "k": app_rh.TOP_K * app_rh.FACTEUR_CANDIDATS,
             }
         ]
 
 
 class TestCategorieQuestion:
     def test_detecte_une_question_odoo(self):
-        assert app.categorie_question("Comment paramétrer les congés dans Odoo ?") == (
-            app.CATEGORIE_ODOO
+        assert app_rh.categorie_question("Comment paramétrer les congés dans Odoo ?") == (
+            app_rh.CATEGORIE_ODOO
         )
 
     def test_detecte_une_question_restauration_rapide(self):
-        assert app.categorie_question(
+        assert app_rh.categorie_question(
             "Quelle prime pour la restauration rapide ?"
-        ) == app.CATEGORIE_CONVENTION
+        ) == app_rh.CATEGORIE_CONVENTION
 
     def test_retourne_none_pour_une_question_generale(self):
-        assert app.categorie_question("Quelle est la duree du travail ?") is None
+        assert app_rh.categorie_question("Quelle est la duree du travail ?") is None
 
 
 class TestModuleOdoo:
     def test_detecte_le_module_conges(self):
-        assert app.module_odoo("Comment poser un conge dans Odoo ?") == "time_off"
+        assert app_rh.module_odoo("Comment poser un conge dans Odoo ?") == "time_off"
 
     def test_detecte_le_module_paie(self):
-        assert app.module_odoo("Ou se trouve la paie dans Odoo ?") == "payroll"
+        assert app_rh.module_odoo("Ou se trouve la paie dans Odoo ?") == "payroll"
 
     def test_retourne_none_sans_module_reconnu(self):
-        assert app.module_odoo("Comment creer une societe dans Odoo ?") is None
+        assert app_rh.module_odoo("Comment creer une societe dans Odoo ?") is None
 
 
 class TestRoutageRecherche:
@@ -437,28 +437,28 @@ class TestRoutageRecherche:
         documents = [document("odoo", source="https://www.odoo.com/doc")]
         vectorstore = FakeVectorStore(documents)
 
-        resultat = app.rechercher("Comment gerer les conges dans Odoo ?", vectorstore)
+        resultat = app_rh.rechercher("Comment gerer les conges dans Odoo ?", vectorstore)
 
         assert resultat == documents
         assert vectorstore.calls[0]["filter"] == {
-            "source": app.SOURCES_ODOO["time_off"]
+            "source": app_rh.SOURCES_ODOO["time_off"]
         }
         assert vectorstore.calls[-1]["filter"] == {
-            "categorie": app.CATEGORIE_ODOO
+            "categorie": app_rh.CATEGORIE_ODOO
         }
         assert vectorstore.mmr_calls == []
 
     def test_question_odoo_interroge_directement_la_source_du_module(self):
         document_time_off = document(
-            "conges", source=app.SOURCES_ODOO["time_off"]
+            "conges", source=app_rh.SOURCES_ODOO["time_off"]
         )
         vectorstore = FakeVectorStore([document_time_off])
 
-        resultat = app.rechercher("Comment gerer les conges dans Odoo ?", vectorstore)
+        resultat = app_rh.rechercher("Comment gerer les conges dans Odoo ?", vectorstore)
 
         assert resultat == [document_time_off]
         assert vectorstore.calls[0]["filter"] == {
-            "source": app.SOURCES_ODOO["time_off"]
+            "source": app_rh.SOURCES_ODOO["time_off"]
         }
 
     def test_question_odoo_priorise_le_module_attendu(self):
@@ -468,7 +468,7 @@ class TestRoutageRecherche:
         ]
         vectorstore = FakeVectorStore(documents)
 
-        resultat = app.rechercher("Comment gerer les conges dans Odoo ?", vectorstore)
+        resultat = app_rh.rechercher("Comment gerer les conges dans Odoo ?", vectorstore)
 
         assert resultat[0].metadata["source"].endswith("time_off.html")
 
@@ -476,10 +476,10 @@ class TestRoutageRecherche:
         documents = [document("convention", source="DRH/Convention_collective.pdf")]
         vectorstore = FakeVectorStore(documents)
 
-        app.rechercher("Quelle prime pour la restauration rapide ?", vectorstore)
+        app_rh.rechercher("Quelle prime pour la restauration rapide ?", vectorstore)
 
         assert vectorstore.calls[0]["filter"] == {
-            "categorie": app.CATEGORIE_CONVENTION
+            "categorie": app_rh.CATEGORIE_CONVENTION
         }
         assert vectorstore.mmr_calls
 
@@ -492,11 +492,11 @@ class TestRetraitHorsSujet:
         ]
         vectorstore = FakeVectorStore(documents)
 
-        resultat = app.rechercher(
+        resultat = app_rh.rechercher(
             "Quels sont les droits en cas d'arret maladie ?", vectorstore
         )
 
-        assert [source["source"] for source in app.extraire_sources(resultat)] == [
+        assert [source["source"] for source in app_rh.extraire_sources(resultat)] == [
             "https://www.service-public.fr/F303"
         ]
 
@@ -507,11 +507,11 @@ class TestRetraitHorsSujet:
         ]
         vectorstore = FakeVectorStore(documents)
 
-        resultat = app.rechercher(
+        resultat = app_rh.rechercher(
             "Quelles sont les regles RGPD pour les donnees RH ?", vectorstore
         )
 
-        assert [source["source"] for source in app.extraire_sources(resultat)] == [
+        assert [source["source"] for source in app_rh.extraire_sources(resultat)] == [
             "https://www.cnil.fr/fr/reglement",
             "https://www.service-public.fr/F303",
         ]
@@ -525,7 +525,7 @@ class TestParatexteConvention:
             page="0",
         )
 
-        assert app._est_paratexte_convention(document_garde) is True
+        assert app_rh._est_paratexte_convention(document_garde) is True
 
     def test_detecte_un_sommaire(self):
         sommaire = document(
@@ -534,7 +534,7 @@ class TestParatexteConvention:
             page="4",
         )
 
-        assert app._est_paratexte_convention(sommaire) is True
+        assert app_rh._est_paratexte_convention(sommaire) is True
 
     def test_detecte_un_arrete_d_extension_en_fin_de_document(self):
         arrete = document(
@@ -543,7 +543,7 @@ class TestParatexteConvention:
             page="239",
         )
 
-        assert app._est_paratexte_convention(arrete) is True
+        assert app_rh._est_paratexte_convention(arrete) is True
 
     def test_conserve_un_article_de_la_convention(self):
         article = document(
@@ -552,7 +552,7 @@ class TestParatexteConvention:
             page="80",
         )
 
-        assert app._est_paratexte_convention(article) is False
+        assert app_rh._est_paratexte_convention(article) is False
 
     def test_conserve_les_documents_hors_convention(self):
         autre = document(
@@ -561,7 +561,7 @@ class TestParatexteConvention:
             page="0",
         )
 
-        assert app._est_paratexte_convention(autre) is False
+        assert app_rh._est_paratexte_convention(autre) is False
 
     def test_la_recherche_hybride_ecarte_le_paratexte(self):
         paratexte = document(
@@ -578,7 +578,7 @@ class TestParatexteConvention:
         )
         vectorstore = FakeVectorStore([paratexte, article])
 
-        resultat = app.rechercher("prime anciennete restauration rapide", vectorstore)
+        resultat = app_rh.rechercher("prime anciennete restauration rapide", vectorstore)
 
         assert article in resultat
         assert paratexte not in resultat
@@ -586,16 +586,16 @@ class TestParatexteConvention:
 
 class TestCiteDesSources:
     def test_detecte_une_citation_numerotee(self):
-        assert app.cite_des_sources("La prime est de 215 euros [1].") is True
+        assert app_rh.cite_des_sources("La prime est de 215 euros [1].") is True
 
     def test_detecte_plusieurs_citations(self):
-        assert app.cite_des_sources("Voir [1] et [2].") is True
+        assert app_rh.cite_des_sources("Voir [1] et [2].") is True
 
     def test_retourne_faux_sans_citation(self):
-        assert app.cite_des_sources("La prime est de 215 euros.") is False
+        assert app_rh.cite_des_sources("La prime est de 215 euros.") is False
 
     def test_retourne_faux_pour_une_reponse_vide(self):
-        assert app.cite_des_sources("") is False
+        assert app_rh.cite_des_sources("") is False
 
 
 class FauxStreamlit:
@@ -644,7 +644,7 @@ class TestResumeRaisonnement:
         ]
 
     def test_resume_le_nombre_d_extraits_et_de_sources(self):
-        resume = app.resume_raisonnement(self._sources())
+        resume = app_rh.resume_raisonnement(self._sources())
 
         assert "3 extraits" in resume
         assert "2 sources" in resume
@@ -652,27 +652,27 @@ class TestResumeRaisonnement:
         assert "pieces jointes" in resume
 
     def test_resume_liste_les_sources_dans_l_ordre_du_contexte(self):
-        resume = app.resume_raisonnement(self._sources())
+        resume = app_rh.resume_raisonnement(self._sources())
 
         assert "[1] a.pdf (p. 1)" in resume
         assert "[2] note.pdf (p. 1)" in resume
 
     def test_resume_signale_une_reponse_sans_citation(self):
-        resume = app.resume_raisonnement(
+        resume = app_rh.resume_raisonnement(
             self._sources(), reponse="Le conge dure 16 semaines."
         )
 
         assert "ne cite pas" in resume
 
     def test_resume_ne_signale_rien_quand_la_reponse_cite_ses_sources(self):
-        resume = app.resume_raisonnement(
+        resume = app_rh.resume_raisonnement(
             self._sources(), reponse="Le conge dure 16 semaines [1]."
         )
 
         assert "ne cite pas" not in resume
 
     def test_resume_vide_sans_source(self):
-        assert app.resume_raisonnement([]) == ""
+        assert app_rh.resume_raisonnement([]) == ""
 
 
 class TestAfficherSources:
@@ -690,7 +690,7 @@ class TestAfficherSources:
     def test_regroupe_les_sources_dans_un_volet_replie(self):
         st = FauxStreamlit()
 
-        app._afficher_sources(st, self._sources())
+        app_rh._afficher_sources(st, self._sources())
 
         assert st.appels[0][0] == "expander"
         assert st.appels[0][1] == "Détails"
@@ -699,7 +699,7 @@ class TestAfficherSources:
     def test_n_affiche_rien_en_dehors_du_volet(self):
         st = FauxStreamlit()
 
-        app._afficher_sources(st, self._sources())
+        app_rh._afficher_sources(st, self._sources())
 
         positions = [index for index, appel in enumerate(st.appels) if appel[0] == "expander"]
         assert positions == [0]
@@ -707,14 +707,14 @@ class TestAfficherSources:
     def test_affiche_l_avertissement_dans_le_volet(self):
         st = FauxStreamlit()
 
-        app._afficher_sources(st, self._sources(), avertissement="⚠️ Sources non citees")
+        app_rh._afficher_sources(st, self._sources(), avertissement="⚠️ Sources non citees")
 
         assert ("caption", "⚠️ Sources non citees") in st.appels
 
     def test_affiche_un_resume_du_raisonnement_et_des_sources(self):
         st = FauxStreamlit()
 
-        app._afficher_sources(st, self._sources())
+        app_rh._afficher_sources(st, self._sources())
 
         textes = " ".join(
             appel[1] for appel in st.appels if len(appel) > 1 and isinstance(appel[1], str)
@@ -726,7 +726,7 @@ class TestAfficherSources:
     def test_ne_cree_pas_de_volet_sans_source(self):
         st = FauxStreamlit()
 
-        app._afficher_sources(st, [])
+        app_rh._afficher_sources(st, [])
 
         assert st.appels == []
 
@@ -759,7 +759,7 @@ class TestCompletionSources:
         selection = [morceaux[0], morceaux[2]]
         vectorstore = self.VectorStoreAvecGet(selection, {source: morceaux})
 
-        resultat = app._completer_sources(selection, vectorstore)
+        resultat = app_rh._completer_sources(selection, vectorstore)
 
         assert [doc.page_content for doc in resultat] == [
             "Debut de la reponse sur les primes.",
@@ -775,14 +775,14 @@ class TestCompletionSources:
         selection = [morceaux[0], morceaux[1]]
         vectorstore = self.VectorStoreAvecGet(selection, {source: morceaux})
 
-        resultat = app._completer_sources(selection, vectorstore, max_morceaux=10)
+        resultat = app_rh._completer_sources(selection, vectorstore, max_morceaux=10)
 
         assert resultat == selection
 
     def test_sans_methode_get_conserve_la_selection(self):
         selection = [document("texte", source="a.pdf")]
 
-        assert app._completer_sources(selection, FakeVectorStore(selection)) == (
+        assert app_rh._completer_sources(selection, FakeVectorStore(selection)) == (
             selection
         )
 
@@ -799,7 +799,7 @@ class TestCompletionSources:
             {source_a: morceaux_a, source_b: morceaux_b, source_c: morceaux_c},
         )
 
-        resultat = app._completer_sources(selection, vectorstore, max_sources=2)
+        resultat = app_rh._completer_sources(selection, vectorstore, max_sources=2)
 
         assert [doc.page_content for doc in resultat] == [
             "a1",
@@ -812,7 +812,7 @@ class TestCompletionSources:
 
 class TestRepondre:
     def test_sans_document_repond_sans_appeler_le_llm(self):
-        resultat = app.repondre("question hors base", FakeVectorStore([]), LLMInterdit())
+        resultat = app_rh.repondre("question hors base", FakeVectorStore([]), LLMInterdit())
 
         assert "Je ne trouve pas" in resultat["reponse"]
         assert resultat["sources"] == []
@@ -828,7 +828,7 @@ class TestRepondre:
         ]
         llm = FakeLLM("Le conge maternite dure 16 semaines.")
 
-        resultat = app.repondre("Quelle est la duree du conge maternite ?", FakeVectorStore(documents), llm)
+        resultat = app_rh.repondre("Quelle est la duree du conge maternite ?", FakeVectorStore(documents), llm)
 
         assert resultat["reponse"] == "Le conge maternite dure 16 semaines."
         assert [source["nom"] for source in resultat["sources"]] == ["a.pdf (p. 1)"]
@@ -845,7 +845,7 @@ class TestRepondre:
             {"role": "assistant", "content": "16 semaines."},
         ]
 
-        app.repondre("et pour un CDD ?", vectorstore, llm, historique=historique)
+        app_rh.repondre("et pour un CDD ?", vectorstore, llm, historique=historique)
 
         assert vectorstore.mmr_calls[0]["question"] == (
             "Quelle est la duree du conge maternite ? et pour un CDD ?"
@@ -856,22 +856,22 @@ class TestRepondre:
         documents = [document("Le CDD est encadre.", source="DRH/a.pdf", page="0")]
         llm = FakeLLM("The fixed-term contract is framed.")
 
-        app.repondre(
+        app_rh.repondre(
             "Is a fixed-term contract allowed?",
             FakeVectorStore(documents),
             llm,
             langue="en",
         )
 
-        assert app.LANGUES["en"]["consigne"] in llm.prompts[0]
+        assert app_rh.LANGUES["en"]["consigne"] in llm.prompts[0]
 
     @pytest.mark.parametrize("langue", ["en", "ko"])
     def test_message_sans_resultat_traduit(self, langue):
-        resultat = app.repondre(
+        resultat = app_rh.repondre(
             "question hors base", FakeVectorStore([]), LLMInterdit(), langue=langue
         )
 
-        assert resultat["reponse"] == app.MESSAGES_SANS_RESULTAT[langue]
+        assert resultat["reponse"] == app_rh.MESSAGES_SANS_RESULTAT[langue]
         assert resultat["sources"] == []
 
 
@@ -898,7 +898,7 @@ class TestRepondreAvecPiecesJointes:
         vectorstore = FakeVectorStore(base)
         llm = FakeLLM("Le conge dure 20 semaines.")
 
-        resultat = app.repondre(
+        resultat = app_rh.repondre(
             "Quelle est la duree du conge maternite ?",
             vectorstore,
             llm,
@@ -910,7 +910,7 @@ class TestRepondreAvecPiecesJointes:
             "Piece jointe : note.pdf (p. 1)",
         ]
         assert pieces.calls == [
-            {"question": "Quelle est la duree du conge maternite ?", "k": app.TOP_K}
+            {"question": "Quelle est la duree du conge maternite ?", "k": app_rh.TOP_K}
         ]
         assert vectorstore.calls == []
         assert vectorstore.mmr_calls == []
@@ -930,7 +930,7 @@ class TestRepondreAvecPiecesJointes:
         vectorstore = FakeVectorStore(base)
         llm = FakeLLM("Le teletravail est encadre.")
 
-        resultat = app.repondre(
+        resultat = app_rh.repondre(
             "Le teletravail est-il encadre ?",
             vectorstore,
             llm,
@@ -941,12 +941,12 @@ class TestRepondreAvecPiecesJointes:
         assert vectorstore.mmr_calls == [
             {
                 "question": "Le teletravail est-il encadre ?",
-                "k": app.TOP_K * app.FACTEUR_CANDIDATS,
+                "k": app_rh.TOP_K * app_rh.FACTEUR_CANDIDATS,
                 "fetch_k": max(
-                    app.FETCH_K,
-                    app.TOP_K * app.FACTEUR_CANDIDATS * 4,
+                    app_rh.FETCH_K,
+                    app_rh.TOP_K * app_rh.FACTEUR_CANDIDATS * 4,
                 ),
-                "lambda_mult": app.MMR_LAMBDA,
+                "lambda_mult": app_rh.MMR_LAMBDA,
             }
         ]
         assert "Le teletravail est encadre." in llm.prompts[0]
@@ -955,7 +955,7 @@ class TestRepondreAvecPiecesJointes:
         pieces = FakePiecesJointes([self._document_piece_jointe()])
         llm = FakeLLM("Le conge dure 20 semaines.")
 
-        resultat = app.repondre(
+        resultat = app_rh.repondre(
             "Quelle est la duree du conge ?", None, llm, pieces_jointes=pieces
         )
 
@@ -965,7 +965,7 @@ class TestRepondreAvecPiecesJointes:
         ]
 
     def test_sans_base_ni_piece_jointe_ne_sollicite_pas_le_llm(self):
-        resultat = app.repondre("question hors base", None, LLMInterdit(), pieces_jointes=FakePiecesJointes([]))
+        resultat = app_rh.repondre("question hors base", None, LLMInterdit(), pieces_jointes=FakePiecesJointes([]))
 
         assert "Je ne trouve pas" in resultat["reponse"]
         assert resultat["sources"] == []
@@ -992,7 +992,7 @@ class TestRepondreAvecPiecesJointes:
         )
         llm = FakeLLM("Le net a payer est de 2 400 euros.")
 
-        resultat = app.repondre(
+        resultat = app_rh.repondre(
             "Quel est le net a payer ?", None, llm, pieces_jointes=pieces
         )
 
@@ -1011,7 +1011,7 @@ class TestRepondreAvecPiecesJointes:
         )
         llm = FakeLLM("Le conge dure 20 semaines.")
 
-        app.repondre(
+        app_rh.repondre(
             "Quelle est la duree du conge maternite ?",
             None,
             llm,
@@ -1019,14 +1019,14 @@ class TestRepondreAvecPiecesJointes:
         )
 
         assert pieces.calls == [
-            {"question": "Quelle est la duree du conge maternite ?", "k": app.TOP_K}
+            {"question": "Quelle est la duree du conge maternite ?", "k": app_rh.TOP_K}
         ]
         assert "Le conge maternite est de 20 semaines." in llm.prompts[0]
 
 
 class TestCreerLlm:
     def test_configure_llama3_2_sur_ollama_local(self):
-        llm = app.creer_llm()
+        llm = app_rh.creer_llm()
 
         assert llm.model == "llama3.2"
         assert "11434" in str(llm.base_url)
@@ -1047,7 +1047,7 @@ class TestStyle:
     def test_masque_l_icone_de_spinner_native(self):
         st = FakeStreamlit()
 
-        app._style(st)
+        app_rh._style(st)
 
         css = "\n".join(st.markdowns)
         assert '[data-testid="stSpinnerIcon"]' in css
@@ -1056,7 +1056,7 @@ class TestStyle:
     def test_affiche_des_points_de_suspension_a_la_place(self):
         st = FakeStreamlit()
 
-        app._style(st)
+        app_rh._style(st)
 
         css = "\n".join(st.markdowns)
         assert 'content: "..."' in css
@@ -1065,7 +1065,7 @@ class TestStyle:
     def test_masque_les_icones_animees_du_statut_en_haut_a_droite(self):
         st = FakeStreamlit()
 
-        app._style(st)
+        app_rh._style(st)
 
         css = "\n".join(st.markdowns)
         assert '[data-testid="stStatusWidgetRunningIcon"]' in css
@@ -1074,7 +1074,7 @@ class TestStyle:
     def test_masque_l_option_record_screen_du_menu(self):
         st = FakeStreamlit()
 
-        app._style(st)
+        app_rh._style(st)
 
         css = "\n".join(st.markdowns)
         assert '[data-testid="stMainMenuItem-recordScreencast"]' in css
@@ -1094,7 +1094,7 @@ class TestInfosIngestion:
             encoding="utf-8",
         )
 
-        infos = app.infos_ingestion(tmp_path)
+        infos = app_rh.infos_ingestion(tmp_path)
 
         assert infos["date"] == datetime(2026, 11, 9, 18, 30)
         assert infos["chunks"] == 15619
@@ -1104,36 +1104,36 @@ class TestInfosIngestion:
         base.write_bytes(b"")
         os.utime(base, (1700000000, 1700000000))
 
-        infos = app.infos_ingestion(tmp_path)
+        infos = app_rh.infos_ingestion(tmp_path)
 
         assert infos["date"] == datetime.fromtimestamp(1700000000)
         assert infos["chunks"] is None
 
     def test_retourne_vide_sans_manifeste_ni_base(self, tmp_path):
-        assert app.infos_ingestion(tmp_path) == {}
+        assert app_rh.infos_ingestion(tmp_path) == {}
 
     def test_ignore_un_manifeste_illisible(self, tmp_path):
         (tmp_path / "ingestion.json").write_text("{invalide", encoding="utf-8")
 
-        assert app.infos_ingestion(tmp_path) == {}
+        assert app_rh.infos_ingestion(tmp_path) == {}
 
 
 class TestTexteAPropos:
     def test_affiche_la_version_la_date_et_le_nombre_d_extraits(self):
         infos = {"date": datetime(2026, 11, 9, 18, 30), "chunks": 15619}
 
-        texte = app.texte_a_propos(infos, version="1.1.0")
+        texte = app_rh.texte_a_propos(infos, version="1.1.0")
 
         assert "1.1.0" in texte
         assert "09/11/2026 à 18:30" in texte
         assert "15 619" in texte
-        assert app.LLM_MODEL in texte
-        assert app.EMBEDDING_MODEL in texte
+        assert app_rh.LLM_MODEL in texte
+        assert app_rh.EMBEDDING_MODEL in texte
 
     def test_signale_une_date_d_ingestion_inconnue(self):
-        texte = app.texte_a_propos({})
+        texte = app_rh.texte_a_propos({})
 
-        assert app.APP_VERSION in texte
+        assert app_rh.APP_VERSION in texte
         assert "inconnue" in texte
 
 
@@ -1142,9 +1142,9 @@ class TestIntegration:
     def test_la_base_chroma_repond_a_une_question_rh(self):
         from ingest import creer_embeddings
 
-        vectorstore = app.creer_vectorstore(embeddings=creer_embeddings())
+        vectorstore = app_rh.creer_vectorstore(embeddings=creer_embeddings())
 
-        documents = app.rechercher("duree legale du travail", vectorstore, k=3)
+        documents = app_rh.rechercher("duree legale du travail", vectorstore, k=3)
 
         assert documents
         assert all(doc.page_content.strip() for doc in documents)
@@ -1152,11 +1152,11 @@ class TestIntegration:
     def test_llama_genere_une_reponse_avec_ses_sources(self):
         from ingest import creer_embeddings
 
-        vectorstore = app.creer_vectorstore(embeddings=creer_embeddings())
-        llm = app.creer_llm()
+        vectorstore = app_rh.creer_vectorstore(embeddings=creer_embeddings())
+        llm = app_rh.creer_llm()
 
         try:
-            resultat = app.repondre(
+            resultat = app_rh.repondre(
                 "Quelle est la duree legale du travail ?", vectorstore, llm, k=3
             )
         except Exception as exc:  # noqa: BLE001 - message clair si Ollama est arrete

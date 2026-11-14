@@ -231,6 +231,29 @@ ROLES_HISTORIQUE = {
 }
 
 
+def _chemins_base(chroma_dir: str | Path = CHROMA_DIR) -> list[Path]:
+    """Chemins candidats de la base (module puis racine legacy si pertinent)."""
+    dossier = Path(chroma_dir)
+    candidats = [dossier]
+    if dossier.name in {"rh", "finances"}:
+        legacy = dossier.parent
+        if legacy != dossier:
+            candidats.append(legacy)
+    elif dossier == Path("chroma_db"):
+        candidats.extend([dossier / "rh", dossier / "finances"])
+    racine_globale = Path("chroma_db")
+    if racine_globale not in candidats:
+        candidats.append(racine_globale)
+
+    vus: set[Path] = set()
+    uniques: list[Path] = []
+    for candidat in candidats:
+        if candidat not in vus:
+            vus.add(candidat)
+            uniques.append(candidat)
+    return uniques
+
+
 def creer_vectorstore(
     persist_directory: str | Path = CHROMA_DIR,
     embeddings: Any | None = None,
@@ -238,10 +261,18 @@ def creer_vectorstore(
     """Ouvre la base ChromaDB existante avec les embeddings Ollama."""
     from langchain_chroma import Chroma
 
+    dossier = Path(persist_directory)
+    if not Path(dossier, "chroma.sqlite3").is_file():
+        for candidat in _chemins_base(dossier):
+            if Path(candidat, "chroma.sqlite3").is_file():
+                dossier = candidat
+                break
+
     if embeddings is None:
         embeddings = creer_embeddings()
+
     return Chroma(
-        persist_directory=str(persist_directory),
+        persist_directory=str(dossier),
         embedding_function=embeddings,
     )
 
@@ -805,8 +836,8 @@ def repondre(
     return {"reponse": contenu, "sources": extraire_sources(documents)}
 
 
-def _base_disponible() -> bool:
-    return Path(CHROMA_DIR, "chroma.sqlite3").is_file()
+def _base_disponible(chroma_dir: str | Path = CHROMA_DIR) -> bool:
+    return any(Path(dossier, "chroma.sqlite3").is_file() for dossier in _chemins_base(chroma_dir))
 
 
 def infos_ingestion(chroma_dir: str | Path = CHROMA_DIR) -> dict[str, Any]:
@@ -816,27 +847,27 @@ def infos_ingestion(chroma_dir: str | Path = CHROMA_DIR) -> dict[str, Any]:
     ancienne qui n'en possede pas, la date de modification de
     ``chroma.sqlite3`` sert de repli. Retourne ``{}`` si la base est absente.
     """
-    dossier = Path(chroma_dir)
-    manifeste = dossier / MANIFESTE_INGESTION
-    if manifeste.is_file():
-        try:
-            contenu = json.loads(manifeste.read_text(encoding="utf-8"))
-            date = datetime.fromisoformat(str(contenu["date_ingestion"]))
-            chunks = contenu.get("chunks")
-        except (OSError, ValueError, KeyError, TypeError):
-            logger.warning("Manifeste d'ingestion illisible : %s", manifeste)
-        else:
-            return {
-                "date": date,
-                "chunks": chunks if isinstance(chunks, int) else None,
-            }
+    for dossier in _chemins_base(chroma_dir):
+        manifeste = dossier / MANIFESTE_INGESTION
+        if manifeste.is_file():
+            try:
+                contenu = json.loads(manifeste.read_text(encoding="utf-8"))
+                date = datetime.fromisoformat(str(contenu["date_ingestion"]))
+                chunks = contenu.get("chunks")
+            except (OSError, ValueError, KeyError, TypeError):
+                logger.warning("Manifeste d'ingestion illisible : %s", manifeste)
+            else:
+                return {
+                    "date": date,
+                    "chunks": chunks if isinstance(chunks, int) else None,
+                }
 
-    base = dossier / "chroma.sqlite3"
-    if base.is_file():
-        return {
-            "date": datetime.fromtimestamp(base.stat().st_mtime),
-            "chunks": None,
-        }
+        base = dossier / "chroma.sqlite3"
+        if base.is_file():
+            return {
+                "date": datetime.fromtimestamp(base.stat().st_mtime),
+                "chunks": None,
+            }
     return {}
 
 

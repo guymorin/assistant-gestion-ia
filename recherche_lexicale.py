@@ -5,7 +5,7 @@ question, mais elle peut manquer un article precis contenant les mots cles
 attends (« 30 jours ouvrables », « IDCC 1501 », un nom de module Odoo).
 Ce module construit un index BM25 en memoire a partir des documents de
 ChromaDB, puis renvoie les passages qui partagent le plus de termes avec la
-question. Les deux classements sont ensuite fusionnes dans app.py.
+question. Les deux classements sont ensuite fusionnes dans app_rh.py.
 """
 
 from __future__ import annotations

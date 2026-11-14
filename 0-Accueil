@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# Lanceur de l'application Assistant DRH - IA.
+# Lanceur du portail (accueil) RH & Finances.
 # Démarre Ollama si nécessaire, lance Streamlit puis ouvre l'onglet
-# du navigateur sur l'application.
+# du navigateur sur le portail.
 #
 # Usage :
-#   ./Assistant-DRH-IA.sh              # port 8501
-#   ASSISTANT_DRH_PORT=8502 ./Assistant-DRH-IA.sh
+#   ./0-Accueil              # port 8501
+#   ASSISTANT_PORTAIL_PORT=8503 ./0-Accueil
 
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
 
-PORT="${ASSISTANT_DRH_PORT:-8501}"
+PORT="${ASSISTANT_PORTAIL_PORT:-8501}"
 URL="http://localhost:${PORT}"
 OLLAMA_URL="http://127.0.0.1:11434"
-OLLAMA_LOG="/tmp/ollama-assistant-drh.log"
+OLLAMA_LOG="/tmp/ollama-assistant-portail.log"
 
 open_browser() {
     local url="$1"
@@ -38,11 +38,6 @@ if [[ ! -x .venv/bin/python ]]; then
     echo "  python3.12 -m venv .venv" >&2
     echo "  .venv/bin/python -m pip install -r requirements-dev.txt" >&2
     exit 1
-fi
-
-if [[ ! -f chroma_db/chroma.sqlite3 ]]; then
-    echo "Attention : base vectorielle absente (chroma_db/chroma.sqlite3)." >&2
-    echo "Construisez-la avec : .venv/bin/python ingest.py" >&2
 fi
 
 # --- Ollama ----------------------------------------------------------------
@@ -68,15 +63,26 @@ fi
 # --- Application déjà lancée ? --------------------------------------------
 
 if curl -fsS --max-time 1 "$URL/_stcore/health" >/dev/null 2>&1; then
-    echo "L'application est déjà lancée : $URL"
-    open_browser "$URL"
-    exit 0
+    echo "L'application est déjà lancée sur $URL, arrêt en cours..."
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -tiTCP:"$PORT" -sTCP:LISTEN | xargs kill 2>/dev/null || true
+    elif command -v fuser >/dev/null 2>&1; then
+        fuser -k "${PORT}/tcp" >/dev/null 2>&1 || true
+    else
+        pkill -f "streamlit run app_portail.py" 2>/dev/null || true
+    fi
+    for _ in $(seq 1 20); do
+        if ! curl -fsS --max-time 1 "$URL/_stcore/health" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.5
+    done
 fi
 
 # --- Lancement de Streamlit ------------------------------------------------
 
-echo "Démarrage de Streamlit sur $URL..."
-.venv/bin/python -m streamlit run app.py \
+echo "Démarrage du portail sur $URL..."
+.venv/bin/python -m streamlit run app_portail.py \
     --server.port "$PORT" \
     --server.headless true \
     --browser.gatherUsageStats false &

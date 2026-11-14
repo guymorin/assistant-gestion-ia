@@ -1,8 +1,18 @@
-# Données RH et dérivés d'indexation (confidentiel)
-Finances/
-RH/
-chroma_db/
-.cache/
+# Python / outillage
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
 
 # Secrets et configuration locale
 .streamlit/secrets.toml
@@ -10,30 +20,73 @@ chroma_db/
 .env.*
 *.key
 *.pem
+*.p12
 
-# Pièces jointes, exports, sauvegardes, journaux
+# Données, documents et pièces (ne pas versionner)
+Ingestion/
+Finances-TVA/
+RH-Onboarding/
+Finances/
+chroma_db/
+.cache/
 uploads/
 pieces_jointes/
 exports/
 backups/
 logs/
-*.log
-*.bak
+
+# Fichiers de données / documents (garder uniquement les scripts)
+*.pdf
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+*.tsv
+*.ods
+*.doc
+*.docx
+*.odt
+*.ott
+*.rtf
+*.ppt
+*.pptx
+*.odp
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.bmp
+*.tiff
+*.svg
+*.zip
+*.tar
+*.gz
+*.7z
+*.rar
+*.sqlite
 *.sqlite3
 *.db
+*.parquet
+*.feather
+*.pkl
+*.pickle
 
-# Python / outillage
-.venv/
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
+# Journaux, sauvegardes et temporaires
+*.log
+*.bak
+*.tmp
+*.swp
+*.swo
+*~
+
+# Plans / notes / données locales
+plan.json
+plan-app.json
+Fixes-needed.md
+
+# OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Données / notes locales (non versionnées)
-Finances-TVA/
-Fixes-needed.md

@@ -23,6 +23,7 @@ def test_finances_view_has_submenu_dynamic_title_and_qr_texts():
     assert "Posez vos questions Finances : les reponses sont fondees sur les documents indexes, avec leurs sources." in src
     assert "⚠️ Reponse generee automatiquement : verifiez toujours les sources affichees avant toute decision administrative et financière." in src
     assert "chat_input" in src
+    assert "st.radio" not in src
 
 class SessionState(dict):
     def __getattr__(self, name):
@@ -54,10 +55,21 @@ class DummySt:
         self.markdowns = []
         self.chat_inputs = []
 
+    def _set_sous_vue(self):
+        self.session_state.fin_sous_vue = self._radio_value
+
     def radio(self, label, options, horizontal=False, key=None, label_visibility=None):
-        if key:
-            setattr(self.session_state, key, self._radio_value)
+        self._set_sous_vue()
         return self._radio_value
+
+    def button(self, *a, **k):
+        # Simule le clic sur l'option de sous-menu demandée par le test.
+        label = a[0] if a else ""
+        key = k.get("key", "")
+        if key.startswith("fin_sous_vue_") and label == self._radio_value:
+            self.session_state.fin_sous_vue = label
+            return True
+        return False
 
     def header(self, text):
         self.headers.append(text)
@@ -143,6 +155,7 @@ class DummySt:
 
 def test_render_qr_index_absent_affiche_message_explicite(monkeypatch):
     st = DummySt(radio_value="Q&R", chat_input_value="question")
+    st.session_state.fin_sous_vue = "Q&R"
     monkeypatch.setattr(fin_view.logic, "_base_disponible", lambda: False)
     monkeypatch.setattr(fin_view.logic, "infos_ingestion", lambda *a, **k: {})
     infos = fin_view.render({"st": st, "session_state": st.session_state})
@@ -156,6 +169,7 @@ def test_render_qr_index_absent_affiche_message_explicite(monkeypatch):
 
 def test_render_declaration_tva_conserve_flux_existant(monkeypatch):
     st = DummySt(radio_value="Déclaration de TVA")
+    st.session_state.fin_sous_vue = "Déclaration de TVA"
     # avoid heavy detection side effects variations by stubbing core helpers minimally
     monkeypatch.setattr(fin_view.core, "trouver_fichiers", lambda *a, **k: {"caisse": None, "banque": None, "obypay": None})
     infos = fin_view.render({"st": st, "session_state": st.session_state})

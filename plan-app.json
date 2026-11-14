@@ -16,7 +16,7 @@
     ]
   },
   "criteres_de_succes": [
-    "streamlit run app.py ouvre la page 'Assistant DRH - IA'",
+    "streamlit run app_rh.py ouvre la page 'RH - IA'",
     "Une question RH produit une reponse en francais fondee sur ./chroma_db",
     "Les documents utilises (PDF avec page, ou URL) sont affiches sous la reponse, sans doublon",
     "L'historique de la conversation reste visible apres chaque interaction",
@@ -25,7 +25,7 @@
   ],
   "perimetre": {
     "inclus": [
-      "Page Streamlit unique (app.py)",
+      "Page Streamlit unique (app_rh.py)",
       "Chargement de la base ChromaDB existante ./chroma_db",
       "Recherche semantique top-k sur la question de l'utilisateur",
       "Generation de la reponse avec llama3.2 via ChatOllama",
@@ -58,9 +58,9 @@
     "tests": "pytest"
   },
   "architecture": {
-    "principe": "Un seul fichier app.py : fonctions pures et testables d'un cote, interface Streamlit mince de l'autre. Les dependances externes (vectorstore, LLM) sont injectables pour les tests. Reutilisation des constantes et de creer_embeddings() de ingest.py pour eviter la duplication.",
+    "principe": "Un seul fichier app_rh.py : fonctions pures et testables d'un cote, interface Streamlit mince de l'autre. Les dependances externes (vectorstore, LLM) sont injectables pour les tests. Reutilisation des constantes et de creer_embeddings() de ingest.py pour eviter la duplication.",
     "fichiers": {
-      "app.py": "a creer - logique RAG + interface Streamlit",
+      "app_rh.py": "a creer - logique RH + interface Streamlit",
       "tests/test_app.py": "a creer - tests unitaires et d'integration",
       "requirements.txt": "a modifier - ajout de streamlit",
       "plan-app.json": "ce fichier de planification"
@@ -178,10 +178,10 @@
   "etapes": [
     "1. Brainstorming, exploration du projet et planification JSON (fait)",
     "2. Validation du plan et des dependances par l'utilisateur (fait)",
-    "3. Ecriture des tests TDD de app.py et verification du rouge (fait : 18 tests, echec attendu 'No module named app')",
+    "3. Ecriture des tests TDD de app_rh.py et verification du rouge (fait : 18 tests, echec attendu 'No module named app')",
     "4. Validation du rouge par l'utilisateur (fait)",
-    "5. Installation de streamlit et passage en phase GREEN (fait : streamlit 1.67.0, app.py implemente)",
+    "5. Installation de streamlit et passage en phase GREEN (fait : streamlit 1.67.0, app_rh.py implemente)",
     "6. Tests unitaires verts + verification d'integration Ollama/ChromaDB (fait : 39 tests verts au total, 2 integration app verts)",
-    "7. Verification manuelle : streamlit run app.py et questions RH representatives (fait : HTTP 200, flux AppTest complet avec reponse et sources)"
+    "7. Verification manuelle : streamlit run app_rh.py et questions RH representatives (fait : HTTP 200, flux AppTest complet avec reponse et sources)"
   ]
 }
