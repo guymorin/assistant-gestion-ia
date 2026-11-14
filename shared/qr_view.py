@@ -291,7 +291,27 @@ def render_pieces_jointes(
         return
 
     # --- Section pièces jointes en haut (dans l'expander) ---
-    with st_mod.expander("Pièces jointes", expanded=expanded):
+    with st_mod.expander("Fichiers de contexte", expanded=expanded):
+        # Champ d'upload de fichier (contexte pour le LLM/RAG)
+        fichiers_uploades = st_mod.file_uploader(
+            "Ajouter un fichier",
+            type=["pdf", "txt", "md"],
+            accept_multiple_files=True,
+            key=f"{prefix}_upload",
+        )
+        if fichiers_uploades:
+            for fichier in fichiers_uploades:
+                try:
+                    with st_mod.spinner(f"Lecture de {fichier.name}..."):
+                        index_pj.ajouter(fichier.name, fichier.getvalue())
+                    st_mod.success(f"{fichier.name} ajouté au contexte.")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Piece jointe ignoree (%s) : %s", fichier.name, exc)
+                    st_mod.warning(f"Impossible d'ajouter {fichier.name} : {exc}")
+            st_mod.rerun()
+
+        st_mod.caption("Formats acceptés : PDF, TXT, Markdown (lisibles par l'IA).")
+
         noms_pj = index_pj.noms()
         if not noms_pj:
             st_mod.caption("Aucun fichier joint (PDF, TXT, Markdown).")
