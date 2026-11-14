@@ -237,12 +237,10 @@ def render_qr(
     session_state[messages_key] = messages
 
     # --- Affichage de l'historique (ordre chronologique décroissant) ---
-    # Avatars visuels par rôle : humain pour l'utilisateur, robot pour l'assistant
-    avatars = {"user": "👤", "assistant": "🤖"}
-
+    # Avatars Streamlit natifs (icônes Material) : humain / robot
     for message in reversed(messages):
         role = message.get("role", "user")
-        avatar = avatars.get(role, "👤")
+        avatar = role if role in {"user", "assistant"} else "user"
         content = message.get("content", "")
         fichiers = message.get("fichiers", [])
         with st_mod.chat_message(role, avatar=avatar):
@@ -309,8 +307,6 @@ def render_pieces_jointes(
                     logger.warning("Piece jointe ignoree (%s) : %s", fichier.name, exc)
                     st_mod.warning(f"Impossible d'ajouter {fichier.name} : {exc}")
             st_mod.rerun()
-
-        st_mod.caption("Formats acceptés : PDF, TXT, Markdown.")
 
         noms_pj = index_pj.noms()
         if not noms_pj:

@@ -166,11 +166,10 @@ def _collect_onboarding_infos(session_state: Any) -> list[InfoItem]:
 
 
 def _afficher_historique(st_mod: Any, session_state: Any) -> None:
-    # Avatars visuels par rôle
-    avatars = {"user": "👤", "assistant": "🤖"}
+    # Avatars Streamlit natifs (icônes Material)
     for message in session_state.rh_messages:
         role = message.get("role", "user")
-        avatar = avatars.get(role, "👤")
+        avatar = role if role in {"user", "assistant"} else "user"
         with st_mod.chat_message(role, avatar=avatar):
             st_mod.markdown(message["content"])
             if message.get("fichiers"):
