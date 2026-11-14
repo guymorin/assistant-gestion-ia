@@ -168,18 +168,18 @@ def creer_vectorstore(
         persist_directory = str(_chroma_dir(cfg))
     dossier = Path(persist_directory)
 
-    if reinitialiser:
-        # Supprimer la collection existante avant insertion
-        if (dossier / "chroma.sqlite3").is_file():
-            Chroma(persist_directory=str(dossier), embedding_function=None).delete_collection()
+    if not (dossier / "chroma.sqlite3").is_file():
+        for candidat in _chemins_base(dossier):
+            if (candidat / "chroma.sqlite3").is_file():
+                dossier = candidat
+                break
 
     if embeddings is None:
         embeddings = creer_embeddings(cfg)
 
-    return Chroma.from_documents(
-        documents=[],  # placeholder ; les vrais documents viendront de l'ingestion
-        embedding=embeddings,
-        persist_directory=persist_directory,
+    return Chroma(
+        persist_directory=str(dossier),
+        embedding_function=embeddings,
     )
 
 
