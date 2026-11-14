@@ -117,6 +117,11 @@ h1, h2, h3, h4 {
   color: var(--ink);
   letter-spacing: -0.01em;
 }
+
+/* Légèrement plus d'air dans les messages de conversation Q&R */
+[data-testid="stChatMessage"] {
+  padding: 0.75rem 1rem !important;
+}
 h1 { font-size: 1.9rem; font-weight: 600; line-height: 1.2; }
 h2 { font-size: 1.4rem; font-weight: 600; line-height: 1.3; }
 h3 { font-size: 1.15rem; font-weight: 600; line-height: 1.35; }
