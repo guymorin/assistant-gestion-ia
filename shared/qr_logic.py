@@ -372,6 +372,7 @@ def repondre(
     pieces_jointes: Any | None = None,
     historique: list[dict[str, Any]] | None = None,
     langue: str = "fr",
+    k: int = 8,
 ) -> dict[str, Any]:
     """Recherche le contexte, interroge le LLM et retourne reponse + sources.
 
