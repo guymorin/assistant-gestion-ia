@@ -115,7 +115,7 @@ def infos_ingestion_plain(chroma_dir: str | Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 _llm_cache: dict[str, Any] = {}
-_embeddings_cache: dict[str, Any] = _llm_cache
+_embeddings_cache: dict[str, Any] = {}
 
 
 def creer_llm(cfg: QRModuleConfig | str | None = None, *, model: str | None = None, temperature: float = 0.0, base_url: str = "http://127.0.0.1:11434") -> ChatOllama:
