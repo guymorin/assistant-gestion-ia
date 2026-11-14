@@ -866,8 +866,13 @@ def repondre(
     if not documents and vectorstore is not None:
         documents = rechercher(question_recherche, vectorstore, k=k)
     if not documents:
+        message_sans_resultat = MESSAGES_SANS_RESULTAT[normaliser_langue(langue)]
+        if isinstance(message_sans_resultat, dict):
+            message_sans_resultat = message_sans_resultat.get(
+                "message", str(message_sans_resultat)
+            )
         return {
-            "reponse": MESSAGES_SANS_RESULTAT[normaliser_langue(langue)],
+            "reponse": message_sans_resultat,
             "sources": [],
         }
 

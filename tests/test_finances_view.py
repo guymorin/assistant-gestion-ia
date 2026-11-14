@@ -81,7 +81,7 @@ class DummySt:
         self.chat_inputs.append(placeholder)
         return self._chat_input_value
 
-    def chat_message(self, role):
+    def chat_message(self, role, **kwargs):
         return DummyCtx()
 
     def markdown(self, text, **kwargs):

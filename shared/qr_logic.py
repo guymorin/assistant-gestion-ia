@@ -11,10 +11,16 @@ symboles publics utilisés par les vues et les tests.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+try:
+    from ingest import EMBEDDING_MODEL as _EMBEDDING_MODEL
+except Exception:  # pragma: no cover
+    _EMBEDDING_MODEL = "nomic-embed-text"
 
 from langchain_core.documents import Document
 from langchain_ollama import OllamaEmbeddings, ChatOllama
@@ -137,7 +143,7 @@ def creer_embeddings(cfg: QRModuleConfig | str | None = None) -> OllamaEmbedding
     key = cfg.id
     if key in _embeddings_cache:
         return _embeddings_cache[key]
-    embeddings = OllamaEmbeddings(model=cfg.default_model, base_url="http://127.0.0.1:11434")
+    embeddings = OllamaEmbeddings(model=_EMBEDDING_MODEL, base_url="http://127.0.0.1:11434")
     _embeddings_cache[key] = embeddings
     return embeddings
 

@@ -186,8 +186,11 @@ def _afficher_mail_popup(st_mod: Any, mail: str) -> None:
 
 
 def _afficher_historique_qr(st_mod: Any, session_state: Any) -> None:
+    avatars = {"user": "👤", "assistant": "🤖"}
     for message in session_state.fin_messages:
-        with st_mod.chat_message(message["role"]):
+        role = message.get("role", "user")
+        avatar = avatars.get(role, "👤")
+        with st_mod.chat_message(role, avatar=avatar):
             st_mod.markdown(message["content"])
             if message["role"] == "assistant":
                 sources = message.get("sources", [])
@@ -212,10 +215,10 @@ def _render_qr(st_mod: Any, session_state: Any) -> list[InfoItem]:
         if question:
             historique = list(session_state.fin_messages[-getattr(logic, "HISTORIQUE_MAX_MESSAGES", 6):])
             session_state.fin_messages.append({"role": "user", "content": question})
-            with st_mod.chat_message("user"):
+            with st_mod.chat_message("user", avatar="👤"):
                 st_mod.markdown(question)
 
-            with st_mod.chat_message("assistant"):
+            with st_mod.chat_message("assistant", avatar="🤖"):
                 base_disponible = logic._base_disponible()
                 if not base_disponible:
                     msg = getattr(logic, "MESSAGE_SANS_RESULTAT", None) or "Base Finances introuvable. Lancez l'ingestion du module Finances : python ingest.py --module finances"

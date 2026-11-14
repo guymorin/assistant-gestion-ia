@@ -186,9 +186,19 @@ class IndexPiecesJointes:
         nom = _nom_lisible(nom)
         documents = extraire_documents(nom, contenu)
         morceaux = decouper_piece_jointe(documents)
-        vecteurs = self._embeddings.embed_documents(
-            [morceau.page_content for morceau in morceaux]
-        )
+
+        # Guardrail : vérification que les embeddings ne sont pas vides
+        textes = [morceau.page_content for morceau in morceaux]
+        if not textes:
+            logger.warning("Aucun texte à encoder pour le fichier %s", nom)
+            return 0
+        vecteurs = self._embeddings.embed_documents(textes)
+
+        # Vérifier que les vecteurs sont valides (non vides)
+        if not vecteurs or all(not v for v in vecteurs):
+            logger.error("Embeddings vides pour le fichier %s", nom)
+            return 0
+
         self._documents[nom] = documents
         self._entrees[nom] = list(zip(morceaux, vecteurs))
         return len(morceaux)
@@ -233,6 +243,12 @@ class IndexPiecesJointes:
             return []
 
         vecteur_question = self._embeddings.embed_query(question)
+
+        # Guardrail : vérification que l'embedding question n'est pas vide
+        if not vecteur_question:
+            logger.warning("Embedding vide pour la question : %s", question[:50])
+            return []
+
         resultats = [
             (_cosinus(vecteur_question, vecteur), document)
             for entrees in self._entrees.values()

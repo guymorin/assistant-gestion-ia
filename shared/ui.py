@@ -15,7 +15,7 @@ from .portal_settings import (
     write_finances_config,
 )
 
-VUES = ("rh", "finances")
+VUES = ("rh", "finances", "juridique", "marketing")
 VUE_PARAMETRES = "parametres"
 VUE_AIDE = "aide"
 VUES_SPECIALES = (VUE_PARAMETRES, VUE_AIDE)
@@ -612,6 +612,8 @@ def render_navbar(st: Any) -> None:
     active_vue = st.session_state.get("vue_active", "rh")
     active_rh = "active" if speciale not in VUES_SPECIALES and active_vue == "rh" else ""
     active_fin = "active" if speciale not in VUES_SPECIALES and active_vue == "finances" else ""
+    active_jur = "active" if speciale not in VUES_SPECIALES and active_vue == "juridique" else ""
+    active_mar = "active" if speciale not in VUES_SPECIALES and active_vue == "marketing" else ""
     logo_src = _logo_data_uri()
     logo_html = (
         f'<img class="brand-logo" src="{logo_src}" alt="HEE" />' if logo_src else ""
@@ -622,6 +624,8 @@ def render_navbar(st: Any) -> None:
   <span class="brand-wrap">{logo_html}<span class="brand">Assistant de Gestion</span></span>
   <a class="nav-item {active_rh}" href="?vue=rh" target="_self">RH</a>
   <a class="nav-item {active_fin}" href="?vue=finances" target="_self">Finances</a>
+  <a class="nav-item {active_jur}" href="?vue=juridique" target="_self">Juridique</a>
+  <a class="nav-item {active_mar}" href="?vue=marketing" target="_self">Marketing</a>
 </div>
 """,
         unsafe_allow_html=True,

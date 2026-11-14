@@ -17,6 +17,7 @@ import streamlit as st
 from shared.info import InfoItem
 from shared.qr_config import juridique_config
 from shared.qr_view import render_qr as _render_qr_generic
+from shared.qr_logic import creer_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,17 @@ def _render_qr(st_mod: Any, session_state: Any) -> list[InfoItem]:
     # Délègue au cœur Q&R générique paramétré par la config Juridique
     cfg = juridique_config()
     return _render_qr_generic(st_mod, session_state, "fr", cfg=cfg)
+
+
+def _ensure_state(session_state: Any) -> None:
+    if "jur_messages" not in session_state:
+        session_state.jur_messages = []
+    if "jur_pieces_jointes" not in session_state:
+        from pieces_jointes import IndexPiecesJointes
+
+        session_state.jur_pieces_jointes = IndexPiecesJointes(
+            embeddings=creer_embeddings(juridique_config()) or []
+        )
 
 
 def _render_declaration_tva(st_mod: Any, session_state: Any) -> list[InfoItem]:
@@ -47,15 +59,6 @@ def render(context: dict[str, Any]) -> list[InfoItem]:
     if sous_vue == "Q&R":
         return _render_qr(st_mod, session_state)
     return _render_declaration_tva(st_mod, session_state)
-
-
-def _ensure_state(session_state: Any) -> None:
-    if "jur_messages" not in session_state:
-        session_state.jur_messages = []
-    if "jur_pieces_jointes" not in session_state:
-        from pieces_jointes import IndexPiecesJointes
-
-        session_state.jur_pieces_jointes = IndexPiecesJointes()
 
 
 def _render_sous_menu(st_mod: Any, session_state: Any) -> str:

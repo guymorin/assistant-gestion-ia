@@ -140,27 +140,12 @@ def render_qr(
         "affichees avant toute decision."
     )
 
-    # --- Affichage de l'historique ---
-    for message in messages:
-        role = message.get("role", "user")
-        content = message.get("content", "")
-        fichiers = message.get("fichiers", [])
-        with st_mod.chat_message(role):
-            st_mod.markdown(content)
-            if fichiers:
-                st_mod.caption("Pièces jointes : " + ", ".join(fichiers))
-            if role == "assistant":
-                # Afficher les sources si disponibles
-                sources = message.get("sources", [])
-                if sources:
-                    with st_mod.expander("Détails", expanded=False):
-                        for i, source in enumerate(sources, 1):
-                            st_mod.markdown(f"**Source [{i}]** : {source.get('nom', 'inconnue')}")
-                            for extrait in source.get("extraits", []):
-                                txt = extrait if len(extrait) <= 600 else extrait[:600] + "..."
-                                st_mod.caption(txt)
+    st_mod.caption(
+        "Formats acceptés pour les fichiers joints : PDF, TXT, Markdown "
+        "(lisibles par le LLM/Ollama)."
+    )
 
-    # --- Saisie utilisateur ---
+    # --- Saisie utilisateur (en haut) ---
     saisie = st_mod.chat_input(
         f"Posez votre question {cfg.label.lower()}...",
         accept_file="multiple",
@@ -196,12 +181,6 @@ def render_qr(
                 message_utilisateur["fichiers"] = noms_joints
             messages.append(message_utilisateur)
 
-            # Afficher le message utilisateur
-            with st_mod.chat_message("user"):
-                st_mod.markdown(question)
-                if noms_joints:
-                    st_mod.caption("Pièces jointes : " + ", ".join(noms_joints))
-
             # --- Génération de la réponse ---
             # Déterminer si on utilise les pièces jointes ou la base
             utilise_pieces_jointes = not session_state[pieces_jointes_key].est_vide()
@@ -234,26 +213,11 @@ def render_qr(
                         langue=langue,
                     )
 
-                # Afficher la réponse
-                with st_mod.chat_message("assistant"):
-                    st_mod.markdown(resultat["reponse"])
-
-                    # Afficher les sources
-                    sources = resultat.get("sources", [])
-                    if sources:
-                        with st_mod.expander("Détails des sources", expanded=False):
-                            for i, source in enumerate(sources, 1):
-                                nom = source.get("nom", "inconnue")
-                                st_mod.markdown(f"**Source [{i}]** : {nom}")
-                                for extrait in source.get("extraits", []):
-                                    texte = extrait if len(extrait) <= 600 else extrait[:600] + "..."
-                                    st_mod.caption(texte)
-
                 # Enregistrer le message assistant
                 assistant_msg: dict[str, Any] = {
                     "role": "assistant",
                     "content": resultat["reponse"],
-                    "sources": sources,
+                    "sources": resultat.get("sources", []),
                 }
                 if noms_joints and utilise_pieces_jointes:
                     assistant_msg["fichiers"] = noms_joints
@@ -261,12 +225,6 @@ def render_qr(
 
             except Exception as exc:  # noqa: BLE001
                 logger.exception("Echec de la génération Q&R")
-                with st_mod.chat_message("assistant"):
-                    st_mod.error(
-                        f"Impossible d'interroger la base {cfg.label.lower()} ou les pièces jointes. "
-                        f"Detail : {exc}"
-                    )
-                # Tout de même enregistrer l'échec dans l'historique
                 messages.append(
                     {
                         "role": "assistant",
@@ -277,6 +235,29 @@ def render_qr(
 
     # Mettre à jour l'état de la session
     session_state[messages_key] = messages
+
+    # --- Affichage de l'historique (ordre chronologique décroissant) ---
+    # Avatars visuels par rôle : humain pour l'utilisateur, robot pour l'assistant
+    avatars = {"user": "👤", "assistant": "🤖"}
+
+    for message in reversed(messages):
+        role = message.get("role", "user")
+        avatar = avatars.get(role, "👤")
+        content = message.get("content", "")
+        fichiers = message.get("fichiers", [])
+        with st_mod.chat_message(role, avatar=avatar):
+            st_mod.markdown(content)
+            if fichiers:
+                st_mod.caption("Pièces jointes : " + ", ".join(fichiers))
+            if role == "assistant":
+                sources = message.get("sources", [])
+                if sources:
+                    with st_mod.expander("Détails", expanded=False):
+                        for i, source in enumerate(sources, 1):
+                            st_mod.markdown(f"**Source [{i}]** : {source.get('nom', 'inconnue')}")
+                            for extrait in source.get("extraits", []):
+                                txt = extrait if len(extrait) <= 600 else extrait[:600] + "..."
+                                st_mod.caption(txt)
 
     # Retourner les infos footer
     return collect_qr_infos(session_state, cfg, langue)
@@ -309,6 +290,7 @@ def render_pieces_jointes(
         # Ne pas créer l'index ici ; attendre qu'assure_state l'ait fait
         return
 
+    # --- Section pièces jointes en haut (dans l'expander) ---
     with st_mod.expander("Pièces jointes", expanded=expanded):
         noms_pj = index_pj.noms()
         if not noms_pj:
@@ -327,13 +309,15 @@ def render_pieces_jointes(
                     index_pj.retirer(nom)
                 st_mod.rerun()
 
-        spacer, col_effacer = st_mod.columns([1, 1])
-        with col_effacer:
-            if st_mod.button("Effacer la conversation", key=f"{prefix}_effacer", use_container_width=True):
-                session_state[_key_messages(cfg)] = []
-                st_mod.rerun()
+    # --- Espacement et bouton "Effacer la conversation" en dessous de l'expander ---
+    st_mod.divider()
+    if st_mod.button("Effacer la conversation", key=f"{prefix}_effacer", use_container_width=True):
+        session_state[_key_messages(cfg)] = []
+        st_mod.rerun()
 
-    # Message d'avertissement si base absente
+    # Avertissement affiché uniquement si la base documentaire du module
+    # n'a pas été ingérée : dans ce cas, seules les pièces jointes jointes
+    # peuvent être utilisées. Lancez l'ingestion pour activer la recherche.
     if not base_disponible(cfg):
         st_mod.warning(
             f"Base {cfg.label.lower()} introuvable : seules les pieces jointes seront utilisees. "

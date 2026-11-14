@@ -166,11 +166,15 @@ def _collect_onboarding_infos(session_state: Any) -> list[InfoItem]:
 
 
 def _afficher_historique(st_mod: Any, session_state: Any) -> None:
+    # Avatars visuels par rôle
+    avatars = {"user": "👤", "assistant": "🤖"}
     for message in session_state.rh_messages:
-        with st_mod.chat_message(message["role"]):
+        role = message.get("role", "user")
+        avatar = avatars.get(role, "👤")
+        with st_mod.chat_message(role, avatar=avatar):
             st_mod.markdown(message["content"])
             if message.get("fichiers"):
-                st_mod.caption("Pieces jointes : " + ", ".join(message["fichiers"]))
+                st_mod.caption("Pièces jointes : " + ", ".join(message["fichiers"]))
             if message["role"] == "assistant":
                 logic._afficher_sources(
                     st_mod,
@@ -183,6 +187,7 @@ def render_pieces_jointes(st_mod: Any, session_state: Any, *, expanded: bool = T
     """Affiche le bloc de gestion des pièces jointes RH (barre latérale droite)."""
     _ensure_state(session_state)
     index_pj = session_state.rh_pieces_jointes
+    # --- Section pièces jointes en haut (dans l'expander) ---
     with st_mod.expander("Pièces jointes", expanded=expanded):
         noms_pj = index_pj.noms()
         if not noms_pj:
@@ -200,30 +205,30 @@ def render_pieces_jointes(st_mod: Any, session_state: Any, *, expanded: bool = T
                 for nom in list(index_pj.noms()):
                     index_pj.retirer(nom)
                 st_mod.rerun()
-        spacer, col_effacer = st_mod.columns([1, 1])
-        with col_effacer:
-            if st_mod.button("Effacer la conversation", key="rh_effacer", use_container_width=True):
-                session_state.rh_messages = []
-                st_mod.rerun()
-        if not logic._base_disponible():
-            st_mod.warning(
-                "Base RH introuvable (chroma_db/rh) : seules les pieces jointes seront utilisees. "
-                "Lancez l'ingestion du module RH (python ingest.py --module rh)."
-            )
+    # --- Bouton "Effacer la conversation" placé en dessous de l'expander, sans chevauchement ---
+    st_mod.divider()
+    if st_mod.button("Effacer la conversation", key="rh_effacer", help="Supprimer tout l'historique de conversation"):
+        session_state.rh_messages = []
+        st_mod.rerun()
+    if not logic._base_disponible():
+        st_mod.warning(
+            "Base RH introuvable (chroma_db/rh) : seules les pieces jointes seront utilisees. "
+            "Lancez l'ingestion du module RH (python ingest.py --module rh)."
+        )
 
 
 def _inject_sous_menu_style(st_mod: Any) -> None:
     st_mod.markdown(
         """
         <style>
-        .rh-sous-menu { margin: 0.1rem 0 0.35rem; }
-        .rh-sous-menu [data-testid="stHorizontalBlock"] { gap: 0.35rem; align-items: stretch; }
+.rh-sous-menu { margin: 0rem 0 0.2rem; }
+        .rh-sous-menu [data-testid="stHorizontalBlock"] { gap: 0.2rem; align-items: flex-start; }
         .rh-sous-menu [data-testid="column"] { width: auto !important; flex: 0 0 auto; min-width: 0; }
         .rh-sous-menu [data-testid="baseButton-secondary"],
         .rh-sous-menu [data-testid="baseButton-primary"] {
             border-radius: var(--radius-pill, 999px);
-            padding: 0.42rem 1rem;
-            font-size: 0.92rem;
+            padding: 0.35rem 0.8rem;
+            font-size: 0.88rem;
             font-weight: 500;
             line-height: 1.2;
             border: 1px solid var(--line, #DDD7CB);
@@ -267,7 +272,8 @@ def _render_sous_menu(st_mod: Any, session_state: Any) -> str:
         if selection in SOUS_VUES:
             session_state.rh_sous_vue = selection
     else:
-        cols = st_mod.columns([1, 1.2, 6])
+        # Utilisation de colonnes alignées en haut pour matcher l'axe des blocs latéraux droits
+        cols = st_mod.columns([1, 1.2, 6], gap="small")
         for idx, option in enumerate(SOUS_VUES):
             actif = session_state.rh_sous_vue == option
             with cols[idx]:
@@ -287,9 +293,9 @@ def _render_sous_menu(st_mod: Any, session_state: Any) -> str:
 
 def _render_qr(st_mod: Any, session_state: Any, langue: str) -> list[InfoItem]:
     # Délègue au cœur Q&R générique paramétré par la config RH
-    cfg = shared.qr_config.rh_config()
+    cfg = rh_config()
     return _render_qr_generic(
-        st_mod, session_state, langue, cfg=cfg
+        st_mod, session_state, cfg, langue
     )
 
 

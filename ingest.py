@@ -316,8 +316,11 @@ def creer_vectorstore(
             ).delete_collection()
         store_factory = Chroma.from_documents
 
+    # Filtrer les chunks vides pour éviter l'erreur d'upsert avec des embeddings vides
+    chunks_non_vides = [c for c in chunks if getattr(c, "page_content", None) and str(c.page_content).strip()]
+
     return store_factory(
-        documents=chunks,
+        documents=chunks_non_vides,
         embedding=embeddings,
         persist_directory=persist_directory,
     )
