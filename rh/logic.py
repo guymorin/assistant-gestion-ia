@@ -3,6 +3,10 @@
 Ce module contient l'implémentation historique de `app_rh` afin de préserver
 le comportement et les API publiques testées, tout en permettant une
 intégration dans le portail modulaire.
+
+Désormais, la plupart de la logique RAG est fournie par ``shared.qr_logic``
+et re-exportée ici pour maintenir la compatibilité avec les imports existants
+``from rh.logic import ...``.
 """
 
 from __future__ import annotations
@@ -25,9 +29,20 @@ from ingest import (
 )
 from pieces_jointes import IndexPiecesJointes
 
+from shared.qr_logic import (
+    base_disponible as _base_disponible_qr,
+    creer_llm as _creer_llm_qr,
+    creer_vectorstore as _creer_vectorstore_qr,
+    infos_ingestion as _infos_ingestion_qr,
+    normaliser_langue as _normaliser_langue_qr,
+    repondre as _repondre_qr,
+    LANGUES as _LANGUES_qr,
+    MESSAGES_SANS_RESULTAT as _MESSAGES_SANS_RESULTAT_qr,
+)
+
 logger = logging.getLogger(__name__)
 
-# Configuration
+# Configuration module RH (identité et constants spécifiques RH)
 APP_VERSION = "1.1.0"
 LLM_MODEL = os.getenv("ASSISTANT_DRH_MODEL", "llama3.2")
 TOP_K = 8
@@ -94,13 +109,17 @@ SOURCES_ODOO = {
 LLM_TEMPERATURE = 0.0
 LLM_NUM_CTX = 8192
 
-MESSAGE_SANS_RESULTAT = (
-    "Je ne trouve pas cette information dans la base documentaire "
-    "(Code du travail, convention collective de la restauration rapide, "
-    "referentiels RH et documentation Odoo). Precisez votre question, ou "
-    "joignez le document concerne pour que je puisse y repondre."
-)
+# Re-exporter les fonctions génériques du cœur Q&R (compatibilité imports existants)
+# Ces noms doivent être identiques à ceux attendus par les vues et tests.
 
+base_disponible = _base_disponible_qr
+creer_llm = _creer_llm_qr
+creer_vectorstore = _creer_vectorstore_qr
+infos_ingestion = _infos_ingestion_qr
+normaliser_langue = _normaliser_langue_qr
+repondre = _repondre_qr
+
+# Labels de langue RH (sur-écriture du cœur générique si besoin)
 LANGUES = {
     "fr": {
         "nom": "Français",
@@ -126,8 +145,9 @@ LANGUES = {
 }
 LANGUE_DEFAUT = "fr"
 
+# Messages de résultat manquant (RH)
 MESSAGES_SANS_RESULTAT = {
-    "fr": MESSAGE_SANS_RESULTAT,
+    "fr": _MESSAGES_SANS_RESULTAT_qr["fr"],
     "en": (
         "I cannot find this information in the documentary base (French Labour "
         "Code, fast-food collective agreement, HR reference documents and Odoo "
@@ -140,11 +160,6 @@ MESSAGES_SANS_RESULTAT = {
         "작성하거나 관련 문서를 첨부해 주시면 답변드릴 수 있습니다."
     ),
 }
-
-
-def normaliser_langue(langue: str | None) -> str:
-    """Ramene un code de langue inconnu ou absent au francais."""
-    return langue if langue in LANGUES else LANGUE_DEFAUT
 
 
 PROMPTS_PAR_LANGUE = {

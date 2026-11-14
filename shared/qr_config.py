@@ -120,6 +120,31 @@ def list_modules() -> list[str]:
     return list(QR_MODULES.keys())
 
 
+# Module-level constants (importables depuis shared.qr_config)
+LANGUES: dict[str, dict[str, str]] = {
+    "fr": {
+        "nom": "Français",
+        "consigne": (
+            "Reponds en francais, de facon claire, concise et structuree. "
+            "Redige toute la reponse dans cette langue, y compris les titres."
+        ),
+    },
+    "en": {
+        "nom": "English",
+        "consigne": (
+            "Answer in English, clearly, concisely and in a structured way. "
+            "Write the whole answer in that language, headings included."
+        ),
+    },
+    "ko": {
+        "nom": "한국어",
+        "consigne": (
+            "한국어로 명확하고 간결하게, 체계적으로 답하세요. "
+            "제목을 포함한 답변 전체를 한국어로 작성하세요."
+        ),
+    },
+}
+
 # ---------------------------------------------------------------------------
 # Helpers de compatibilité : exposer les anciens noms importés par les modules
 # existants (rh.logic, finances.logic) via le cœur partagé.
