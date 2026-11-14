@@ -310,7 +310,7 @@ def render_pieces_jointes(
                     st_mod.warning(f"Impossible d'ajouter {fichier.name} : {exc}")
             st_mod.rerun()
 
-        st_mod.caption("Formats acceptés : PDF, TXT, Markdown (lisibles par l'IA).")
+        st_mod.caption("Formats acceptés : PDF, TXT, Markdown.")
 
         noms_pj = index_pj.noms()
         if not noms_pj:
