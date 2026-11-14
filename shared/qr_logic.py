@@ -395,9 +395,9 @@ def repondre(
         elif hasattr(pieces_jointes, "rechercher"):
             documents = list(pieces_jointes.rechercher(question_recherche, k=k))
         if not documents and vectorstore is not None:
-            documents = rechercher(question_recherche, vectorstore, k=k)
+            documents = rechercher(question_recherche, cfg, vectorstore=vectorstore, k=k)
     if not documents and vectorstore is not None:
-        documents = rechercher(question_recherche, vectorstore, k=k)
+        documents = rechercher(question_recherche, cfg, vectorstore=vectorstore, k=k)
 
     if not documents:
         langue_courante = normaliser_langue(langue)
