@@ -101,9 +101,8 @@ html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stAppViewC
   font-family: 'Roboto', system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
-[data-testid="stAppViewContainer"] * {
-  font-family: inherit;
-}
+/* Ne pas forcer font-family sur tous les éléments : cela casse les icônes
+   Material Symbols (flèches, upload, etc.) utilisées par Streamlit. */
 
 section.main > div.block-container,
 [data-testid="stAppViewBlockContainer"],
