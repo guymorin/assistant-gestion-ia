@@ -65,7 +65,7 @@ def base_disponible(cfg: QRModuleConfig | str | None = None, *, chroma_dir: str 
         cfg = get_module_config(cfg)
     if chroma_dir is not None:
         return (Path(chroma_dir) / "chroma.sqlite3").is_file()
-    return any((_chroma_dir(cfg) / d).joinpath("chroma.sqlite3").is_file() for d in _chemins_base(_chroma_dir(cfg)))
+    return any((d / "chroma.sqlite3").is_file() for d in _chemins_base(_chroma_dir(cfg)))
 
 
 def _chemins_base(chroma_dir: Path) -> list[Path]:
