@@ -306,11 +306,29 @@ def creer_vectorstore(
     from langchain_chroma import Chroma
 
     dossier = Path(persist_directory)
-    if not Path(dossier, "chroma.sqlite3").is_file():
-        for candidat in _chemins_base(dossier):
-            if Path(candidat, "chroma.sqlite3").is_file():
-                dossier = candidat
+    candidats = _chemins_base(dossier)
+    # Preferer une base non vide (ex. repli legacy si le module n'a pas ete ingere)
+    selectionne = None
+    for candidat in candidats:
+        if not Path(candidat, "chroma.sqlite3").is_file():
+            continue
+        try:
+            from langchain_chroma import Chroma
+
+            vs = Chroma(persist_directory=str(candidat), embedding_function=creer_embeddings())
+            if getattr(vs, "_collection", None) is not None and vs._collection.count() > 0:
+                selectionne = candidat
                 break
+        except Exception:  # noqa: BLE001
+            selectionne = candidat
+            break
+    if selectionne is None:
+        for candidat in candidats:
+            if Path(candidat, "chroma.sqlite3").is_file():
+                selectionne = candidat
+                break
+    if selectionne is not None:
+        dossier = Path(selectionne)
 
     if embeddings is None:
         embeddings = creer_embeddings()
@@ -905,7 +923,19 @@ def _chemins_base(chroma_dir: str | Path = CHROMA_DIR) -> list[Path]:
 
 
 def _base_disponible(chroma_dir: str | Path = CHROMA_DIR) -> bool:
-    return any(Path(d, "chroma.sqlite3").is_file() for d in _chemins_base(chroma_dir))
+    for d in _chemins_base(chroma_dir):
+        if not Path(d, "chroma.sqlite3").is_file():
+            continue
+        try:
+            from langchain_chroma import Chroma
+
+            vs = Chroma(persist_directory=str(d), embedding_function=creer_embeddings())
+            if getattr(vs, "_collection", None) is not None and vs._collection.count() > 0:
+                return True
+        except Exception:  # noqa: BLE001
+            # Repli : si la base existe mais ne peut pas être ouverte, on la considère disponible
+            return True
+    return False
 
 
 def infos_ingestion(chroma_dir: str | Path = CHROMA_DIR) -> dict[str, Any]:
