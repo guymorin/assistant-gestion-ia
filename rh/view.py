@@ -7,6 +7,8 @@ import streamlit as st
 
 from pieces_jointes import IndexPiecesJointes
 from shared.info import InfoItem
+from shared.qr_config import rh_config
+from shared.qr_view import render_qr as _render_qr_generic
 
 from . import logic, onboarding
 
@@ -284,105 +286,11 @@ def _render_sous_menu(st_mod: Any, session_state: Any) -> str:
 
 
 def _render_qr(st_mod: Any, session_state: Any, langue: str) -> list[InfoItem]:
-    st_mod.caption(
-        "Posez vos questions RH (droit du travail, convention collective de la "
-        "restauration rapide, contrats, paie, absences, Odoo...) : les reponses "
-        "sont fondees sur les documents indexes, avec leurs sources."
+    # Délègue au cœur Q&R générique paramétré par la config RH
+    cfg = shared.qr_config.rh_config()
+    return _render_qr_generic(
+        st_mod, session_state, langue, cfg=cfg
     )
-    st_mod.caption(
-        "⚠️ Reponse generee automatiquement : verifiez toujours les sources "
-        "affichees avant toute decision juridique ou disciplinaire."
-    )
-
-    index_pj = session_state.rh_pieces_jointes
-    _afficher_historique(st_mod, session_state)
-
-    saisie = st_mod.chat_input(
-        "Posez votre question RH...",
-        accept_file="multiple",
-        file_type=["pdf", "txt", "md"],
-        max_upload_size=20,
-    )
-    if saisie is not None:
-        question = (getattr(saisie, "text", "") or "").strip()
-        fichiers = list(getattr(saisie, "files", None) or [])
-        if question or fichiers:
-            noms_joints = []
-            for fichier in fichiers:
-                try:
-                    with st_mod.spinner(f"Lecture de {fichier.name}..."):
-                        index_pj.ajouter(fichier.name, fichier.getvalue())
-                    noms_joints.append(fichier.name)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Piece jointe ignoree (%s) : %s", fichier.name, exc)
-                    st_mod.warning(f"Impossible d'ajouter {fichier.name} : {exc}")
-
-            if not question and noms_joints:
-                question = "Resume le(s) document(s) joint(s)."
-
-            if question:
-                historique = list(session_state.rh_messages[-logic.HISTORIQUE_MAX_MESSAGES :])
-                message_utilisateur = {"role": "user", "content": question}
-                if noms_joints:
-                    message_utilisateur["fichiers"] = noms_joints
-                session_state.rh_messages.append(message_utilisateur)
-                with st_mod.chat_message("user"):
-                    st_mod.markdown(question)
-                    if noms_joints:
-                        st_mod.caption("Pieces jointes : " + ", ".join(noms_joints))
-
-                with st_mod.chat_message("assistant"):
-                    base_disponible = logic._base_disponible()
-                    if not base_disponible and index_pj.est_vide():
-                        st_mod.error(
-                            "Base RH introuvable dans ./chroma_db/rh et aucun fichier "
-                            "joint. Lancez d'abord l'ingestion du module RH : python ingest.py --module rh"
-                        )
-                    else:
-                        utilise_pieces_jointes = not index_pj.est_vide()
-                        try:
-                            vectorstore = (
-                                _vectorstore()
-                                if base_disponible and not utilise_pieces_jointes
-                                else None
-                            )
-                            if utilise_pieces_jointes:
-                                st_mod.caption(
-                                    "Reponse fondee uniquement sur les pieces jointes, sans "
-                                    "melange avec la base RH."
-                                )
-                                texte_spinner = "Analyse des pieces jointes..."
-                            else:
-                                texte_spinner = "Recherche dans la base RH..."
-                            with st_mod.spinner(texte_spinner):
-                                resultat = logic.repondre(
-                                    question,
-                                    vectorstore,
-                                    _llm(),
-                                    pieces_jointes=index_pj,
-                                    historique=historique,
-                                    langue=langue,
-                                )
-                            st_mod.markdown(resultat["reponse"])
-                            logic._afficher_sources(
-                                st_mod, resultat["sources"], reponse=resultat["reponse"]
-                            )
-                            session_state.rh_messages.append(
-                                {
-                                    "role": "assistant",
-                                    "content": resultat["reponse"],
-                                    "sources": resultat["sources"],
-                                }
-                            )
-                        except Exception as exc:  # noqa: BLE001
-                            logger.exception("Echec de la generation")
-                            st_mod.error(
-                                "Impossible d'interroger la base RH ou les pieces jointes. "
-                                f"Verifiez qu'Ollama est demarre sur {logic.OLLAMA_BASE_URL}.\n\n"
-                                f"Detail : {exc}"
-                            )
-
-    return _collect_rh_infos(session_state, langue)
 
 
 def _render_rh_body(context: dict[str, Any]) -> list[InfoItem]:

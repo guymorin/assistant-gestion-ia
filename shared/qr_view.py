@@ -356,6 +356,7 @@ def collect_qr_infos(
 
     prefix = cfg.state_prefix
     messages_key = _key_messages(cfg)
+    pieces_jointes_key = _key_pieces_jointes(cfg)
 
     base_ok = base_disponible(cfg)
     infos_ing = infos_ingestion(cfg)

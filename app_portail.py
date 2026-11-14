@@ -11,7 +11,7 @@ from shared.ui import VUE_AIDE, VUE_PARAMETRES, init_global_state, run_portail
 
 def _vue_initiale() -> str:
     vue = os.environ.get("PORTAIL_VUE", "").strip().lower()
-    if vue in {"rh", "finances"}:
+    if vue in {"rh", "finances", "juridique", "marketing"}:
         return vue
     try:
         params = st.query_params
@@ -19,7 +19,7 @@ def _vue_initiale() -> str:
         if isinstance(qp, list):
             qp = qp[0] if qp else ""
         qp = str(qp).strip().lower()
-        if qp in {"rh", "finances", VUE_PARAMETRES, VUE_AIDE}:
+        if qp in {"rh", "finances", "juridique", "marketing", VUE_PARAMETRES, VUE_AIDE}:
             return qp
     except Exception:
         pass
@@ -55,7 +55,7 @@ def main() -> None:
         st.session_state["vue_speciale"] = VUE_PARAMETRES
     elif vue_init == VUE_AIDE:
         st.session_state["vue_speciale"] = VUE_AIDE
-    elif "vue_active" not in st.session_state or st.session_state.get("vue_active") not in ("rh", "finances"):
+    elif "vue_active" not in st.session_state or st.session_state.get("vue_active") not in ("rh", "finances", "juridique", "marketing"):
         st.session_state["vue_active"] = vue_init
     # vues branchées progressivement
     try:
@@ -66,9 +66,19 @@ def main() -> None:
         from finances.view import render as render_finances
     except Exception:
         render_finances = _placeholder_view("Finances")
+    try:
+        from juridique.view import render as render_juridique
+    except Exception:
+        render_juridique = _placeholder_view("Juridique")
+    try:
+        from marketing.view import render as render_marketing
+    except Exception:
+        render_marketing = _placeholder_view("Marketing")
     views = {
         "rh": render_rh,
         "finances": render_finances,
+        "juridique": render_juridique,
+        "marketing": render_marketing,
     }
     run_portail(views, st.session_state, st)
 

@@ -158,3 +158,13 @@ def rh_config() -> QRModuleConfig:
 def finances_config() -> QRModuleConfig:
     """Retourne la config Finances pour compatibilité avec le code existant."""
     return QR_MODULES["finances"]
+
+
+def juridique_config() -> QRModuleConfig:
+    """Retourne la config Juridique pour compatibilité avec le code existant."""
+    return QR_MODULES["juridique"]
+
+
+def marketing_config() -> QRModuleConfig:
+    """Retourne la config Marketing pour compatibilité avec le code existant."""
+    return QR_MODULES["marketing"]
