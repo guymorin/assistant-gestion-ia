@@ -39,6 +39,16 @@ MODULES = {
         "urls_file": "./Ingestion/Finances/Finances-web.txt",
         "chroma_dir": "./chroma_db/finances",
     },
+    "juridique": {
+        "pdf_dir": "./Ingestion/Juridique",
+        "urls_file": "./Ingestion/Juridique/Juridique-web.txt",
+        "chroma_dir": "./chroma_db/juridique",
+    },
+    "marketing": {
+        "pdf_dir": "./Ingestion/Marketing",
+        "urls_file": "./Ingestion/Marketing/Marketing-web.txt",
+        "chroma_dir": "./chroma_db/marketing",
+    },
 }
 
 DEFAULT_MODULE = "rh"
@@ -447,12 +457,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument(
         "--module",
-        choices=["rh", "finances", "all"],
+        choices=["rh", "finances", "juridique", "marketing", "all"],
         default="all",
-        help="Module à ingérer (rh, finances ou all). Défaut: all.",
+        help="Module à ingérer (rh, finances, juridique ou marketing). Défaut: all.",
     )
     args, _ = parser.parse_known_args(argv)
-    modules = ["rh", "finances"] if args.module == "all" else [args.module]
+    modules = (
+        ["rh", "finances", "juridique", "marketing"]
+        if args.module == "all"
+        else [args.module]
+    )
     try:
         totals = [ingerer(module=m, cache_dir=PDF_CACHE_DIR) for m in modules]
     except Exception:  # noqa: BLE001 - le CLI doit toujours renvoyer un code de sortie
