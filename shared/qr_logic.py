@@ -399,8 +399,8 @@ def repondre(
     if not documents and vectorstore is not None:
         documents = rechercher(question_recherche, cfg, vectorstore=vectorstore, k=k)
 
+    langue_courante = normaliser_langue(langue)
     if not documents:
-        langue_courante = normaliser_langue(langue)
         message = MESSAGES_SANS_RESULTAT.get(langue_courante, MESSAGES_SANS_RESULTAT["fr"])
         return {
             "reponse": message["message"],
