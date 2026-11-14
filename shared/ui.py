@@ -695,12 +695,25 @@ def run_portail(
     ]
 
     with right_col:
-        if vue_active == "rh" and vue not in VUES_SPECIALES:
+        is_qr_view = vue not in VUES_SPECIALES and vue in VUES
+        if is_qr_view:
             try:
-                from rh.view import render_pieces_jointes
+                from shared.qr_view import render_pieces_jointes as _render_pj
 
-                render_pieces_jointes(st, session_state, expanded=True)
-                st.divider()
+                # On passe le cfg correspondant au module actif
+                cfg_map = {
+                    "rh": "rh",
+                    "finances": "finances",
+                    "juridique": "juridique",
+                    "marketing": "marketing",
+                }
+                cfg_id = cfg_map.get(vue)
+                if cfg_id:
+                    from shared.qr_config import get_module_config
+
+                    cfg = get_module_config(cfg_id)
+                    _render_pj(st, session_state, cfg, expanded=True)
+                    st.divider()
             except Exception:
                 pass
         _render_info_items(st, collect_footer_infos(infos_globales, infos_vue), title="Informations", show_divider=False)
