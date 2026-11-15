@@ -3,6 +3,10 @@
 # tout en conservant les options spectateur (theme, impression, a propos).
 toolbarMode = "viewer"
 
+[server]
+# Évite la saturation inotify (overflow) en excluant les répertoires volumineux/non-code.
+folderWatchBlacklist = [".venv", "venv", ".git", "__pycache__", "chroma_db", "Finances", "Finances-TVA", "Ingestion", "RH-Onboarding", "logs", "uploads", "pieces_jointes", "exports", "backups"]
+
 # Palette alignée sur les tokens --green / --paper / --ink
 [theme]
 primaryColor = "#2C5B29"

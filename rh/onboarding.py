@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import io
+import json
 import re
+import unicodedata
 import zipfile
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 RH_ONBOARDING_DIR = Path(__file__).resolve().parent.parent / "RH-Onboarding"
+CONFIG_SALARIE_FILENAME = ".config"
 
 CHAMPS_DEFAUT: dict[str, Any] = {
     "civilite": "M.",
@@ -35,12 +38,37 @@ def etablissements_disponibles(base_dir: Path | None = None) -> list[str]:
     return sorted([p.name for p in base.iterdir() if p.is_dir()])
 
 
+def _chemin_etablissement_sur(base_racine: Path, etablissement: str) -> Path | None:
+    etab = (etablissement or "").strip()
+    if not etab or Path(etab).is_absolute() or "/" in etab or "\\" in etab or ".." in etab.split():
+        # refuse séparateurs/traversal explicites
+        if not etab or Path(etab).is_absolute() or "/" in etab or "\\" in etab or ".." in etab:
+            return None
+    base = base_racine.resolve()
+    cible = (base_racine / etab).resolve()
+    try:
+        cible.relative_to(base)
+    except ValueError:
+        return None
+    return cible
+
+
 def lister_modeles(etablissement: str, base_dir: Path | None = None) -> list[Path]:
-    base = (base_dir or RH_ONBOARDING_DIR) / etablissement
-    if not base.is_dir():
+    base_racine = base_dir or RH_ONBOARDING_DIR
+    base = _chemin_etablissement_sur(base_racine, etablissement)
+    if base is None or not base.is_dir():
         return []
     fichiers = [p for p in base.iterdir() if p.is_file() and p.suffix.lower() in {".ott", ".odt", ".pdf"}]
-    return sorted(fichiers, key=lambda p: p.name.lower())
+    # dédoublonnage: si .ott/.odt et .pdf partagent le même nom de base, garder le modèle éditable
+    par_stem: dict[str, list[Path]] = {}
+    for p in sorted(fichiers, key=lambda x: x.name.lower()):
+        par_stem.setdefault(p.stem.lower(), []).append(p)
+    dedup: list[Path] = []
+    for _stem, items in par_stem.items():
+        templates = [i for i in items if i.suffix.lower() in {".ott", ".odt"}]
+        others = [i for i in items if i.suffix.lower() not in {".ott", ".odt"}]
+        dedup.extend(templates if templates else others)
+    return sorted(dedup, key=lambda p: p.name.lower())
 
 
 def _to_float(val: Any) -> float:
@@ -434,3 +462,112 @@ def recapitulatif(data: dict[str, Any]) -> str:
         f"Établissement : {data.get('etablissement','')}",
     ]
     return "\n".join(lines)
+
+
+def chemin_base_rh_defaut(etablissement: str) -> str:
+    return f"/home/guy/SAVE/GESTION/Finances/Business/Activite/RH/Odoo/Salariés/{etablissement}"
+
+
+def assainir_nom_dossier(nom: str, prenom: str) -> str:
+    brut = f"{(nom or '').strip()}_{(prenom or '').strip()}".strip("_")
+    brut = unicodedata.normalize("NFKD", brut)
+    brut = "".join(c for c in brut if not unicodedata.combining(c))
+    brut = brut.replace(" ", "_")
+    brut = re.sub(r"[^A-Za-z0-9_-]+", "_", brut)
+    brut = re.sub(r"_+", "_", brut).strip("_-")
+    return brut
+
+
+def _serialiser_data_config(data: dict[str, Any]) -> dict[str, Any]:
+    """Prépare les données du formulaire pour persistance JSON (.config salarié)."""
+    out: dict[str, Any] = {}
+    for key in CHAMPS_DEFAUT:
+        val = data.get(key, CHAMPS_DEFAUT.get(key))
+        if isinstance(val, (date, datetime)):
+            out[key] = _fmt_date(val)
+        elif isinstance(val, Path):
+            out[key] = str(val)
+        else:
+            out[key] = val
+    # conserve aussi l'établissement si présent sous une autre forme
+    if "etablissement" in data and "etablissement" not in out:
+        out["etablissement"] = data.get("etablissement")
+    return out
+
+
+def sauvegarder_config_salarie(dossier: str | Path, data: dict[str, Any]) -> Path:
+    """Écrit le fichier .config (JSON) dans le dossier salarié et retourne son chemin."""
+    cible = Path(dossier) / CONFIG_SALARIE_FILENAME
+    payload = _serialiser_data_config(data)
+    cible.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return cible
+
+
+def charger_config_salarie(dossier: str | Path) -> dict[str, Any] | None:
+    """Charge le .config d'un dossier salarié, fusionné avec les valeurs par défaut.
+
+    Retourne None si absent ou invalide.
+    """
+    path = Path(dossier) / CONFIG_SALARIE_FILENAME
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(raw, dict):
+        return None
+    merged = dict(CHAMPS_DEFAUT)
+    for k, v in raw.items():
+        if k in merged or k == "etablissement":
+            merged[k] = v
+    return merged
+
+
+def lister_dossiers_salaries_avec_config(base_path: str | Path) -> list[Path]:
+    """Liste les sous-dossiers contenant un .config salarié lisible, triés par nom."""
+    base = Path(base_path).expanduser()
+    if not base.is_dir():
+        return []
+    result: list[Path] = []
+    for child in sorted(base.iterdir(), key=lambda p: p.name.lower()):
+        if not child.is_dir():
+            continue
+        if charger_config_salarie(child) is not None:
+            result.append(child)
+    return result
+
+
+def creer_dossier_salarie(data: dict[str, Any], base_paths: dict[str, str] | None = None) -> tuple[bool, str]:
+    etab = (data.get("etablissement") or "").strip()
+    if not etab:
+        return False, "Établissement non sélectionné."
+    nom_dossier = assainir_nom_dossier(data.get("nom", ""), data.get("prenom", ""))
+    if not nom_dossier:
+        return False, "Nom/prénom manquant ou invalide pour créer le dossier."
+    base = ""
+    if isinstance(base_paths, dict):
+        base = str(base_paths.get(etab) or "").strip()
+    if not base:
+        try:
+            from shared.portal_settings import load_portal_settings
+
+            base = str((load_portal_settings().get("rh_base_paths") or {}).get(etab) or "").strip()
+        except Exception:
+            base = ""
+    if not base:
+        return False, f"Chemin racine RH non configuré pour l’établissement « {etab} » (Paramètres)."
+    cible = Path(base).expanduser() / nom_dossier
+    if cible.exists():
+        return False, f"Dossier déjà existant : {cible}. Vérifiez l’identité du salarié ou ajustez le nom (aucun dossier créé)."
+    try:
+        cible.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        return False, f"Dossier déjà existant : {cible}. Vérifiez l’identité du salarié ou ajustez le nom (aucun dossier créé)."
+    except Exception as exc:
+        return False, f"Impossible de créer le dossier « {cible} » : {exc}"
+    try:
+        sauvegarder_config_salarie(cible, data)
+    except Exception as exc:
+        return False, f"Dossier créé mais impossible d’enregistrer le fichier .config dans « {cible} » : {exc}"
+    return True, str(cible)

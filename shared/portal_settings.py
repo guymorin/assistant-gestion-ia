@@ -10,7 +10,7 @@ THEME_LABELS = {"systeme": "Système", "clair": "Clair", "sombre": "Sombre"}
 
 
 def _default_settings() -> dict[str, Any]:
-    return {"theme_mode": "systeme"}
+    return {"theme_mode": "systeme", "rh_base_paths": {}}
 
 
 def load_portal_settings(path: str | Path = PORTAL_SETTINGS_FILE) -> dict[str, Any]:
@@ -23,6 +23,9 @@ def load_portal_settings(path: str | Path = PORTAL_SETTINGS_FILE) -> dict[str, A
         if isinstance(data, dict):
             if data.get("theme_mode") in THEME_MODES:
                 settings["theme_mode"] = data["theme_mode"]
+            rh = data.get("rh_base_paths")
+            if isinstance(rh, dict):
+                settings["rh_base_paths"] = {str(k): str(v) for k, v in rh.items() if isinstance(k, str) and isinstance(v, (str, int, float))}
     except Exception:
         return settings
     return settings
@@ -31,11 +34,24 @@ def load_portal_settings(path: str | Path = PORTAL_SETTINGS_FILE) -> dict[str, A
 def save_portal_settings(settings: dict[str, Any], path: str | Path = PORTAL_SETTINGS_FILE) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    data = {
-        "theme_mode": settings.get("theme_mode", "systeme")
-        if settings.get("theme_mode") in THEME_MODES
+    existing = {}
+    if p.is_file():
+        try:
+            loaded = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                existing = loaded
+        except Exception:
+            existing = {}
+    data = dict(existing)
+    data["theme_mode"] = (
+        settings.get("theme_mode", existing.get("theme_mode", "systeme"))
+        if settings.get("theme_mode", existing.get("theme_mode", "systeme")) in THEME_MODES
         else "systeme"
-    }
+    )
+    if "rh_base_paths" in settings and isinstance(settings.get("rh_base_paths"), dict):
+        data["rh_base_paths"] = {str(k): str(v) for k, v in settings["rh_base_paths"].items()}
+    elif "rh_base_paths" not in data or not isinstance(data.get("rh_base_paths"), dict):
+        data["rh_base_paths"] = {}
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
@@ -82,7 +98,7 @@ def write_finances_config(
     updates: dict[str, dict[str, str]],
     original_lines: list[str] | None = None,
 ) -> None:
-    """Met à jour les lignes d'établissements dans Finances-config.txt.
+    """Met à jour les lignes d'établissements dans Assistant-de-Gestion.config.
 
     Conserve les commentaires/lignes vides. Ajoute les établissements absents à la fin.
     """

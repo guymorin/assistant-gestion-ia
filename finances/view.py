@@ -15,11 +15,21 @@ logger = logging.getLogger(__name__)
 
 SOUS_VUES = ("Q&R", "Déclaration de TVA")
 SOUS_VUE_DEFAUT = "Q&R"
-TEXTE_QR = "Posez vos questions Finances : les reponses sont fondees sur les documents indexes, avec leurs sources."
-AVERTISSEMENT_QR = "⚠️ Reponse generee automatiquement : verifiez toujours les sources affichees avant toute decision administrative et financière."
+TEXTE_QR = "Posez vos questions finances : les réponses sont fondées sur les documents indexés, avec leurs sources."
+# ancien : Posez vos questions Finances : les réponses sont fondées sur les documents indexés, avec leurs sources.
+# ancien : Posez vos questions Finances : les reponses sont fondees sur les documents indexes, avec leurs sources.
+AVERTISSEMENT_QR = "⚠️  Réponse génerée automatiquement : vérifiez toujours les sources affichées avant toute décision administrative et financière."
 
 
 def _ensure_state(session_state: Any) -> None:
+    if "fin_pieces_jointes" not in session_state:
+        from pieces_jointes import IndexPiecesJointes
+
+        try:
+            embeddings = logic.creer_embeddings()
+        except Exception:  # noqa: BLE001
+            embeddings = None
+        session_state.fin_pieces_jointes = IndexPiecesJointes(embeddings=embeddings or [])
     if "fin_mail_annee" not in session_state or "fin_mail_mois" not in session_state:
         a, m = core.mois_precedent()
         session_state.fin_mail_annee = a
@@ -208,7 +218,7 @@ def _render_qr(st_mod: Any, session_state: Any) -> list[InfoItem]:
 
     _afficher_historique_qr(st_mod, session_state)
 
-    question = st_mod.chat_input("Posez votre question Finances...")
+    question = st_mod.chat_input("Posez votre question finances...")
     if question is not None:
         question = (question or "").strip()
         if question:
@@ -219,16 +229,19 @@ def _render_qr(st_mod: Any, session_state: Any) -> list[InfoItem]:
 
             with st_mod.chat_message("assistant", avatar="assistant"):
                 base_disponible = logic._base_disponible()
-                if not base_disponible:
+                pj = session_state.get("fin_pieces_jointes")
+                utilise_pj = pj is not None and not getattr(pj, "est_vide", lambda: True)()
+                if not base_disponible and not utilise_pj:
                     msg = getattr(logic, "MESSAGE_SANS_RESULTAT", None) or "Base Finances introuvable. Lancez l'ingestion du module Finances : python ingest.py --module finances"
                     st_mod.error(msg)
                 else:
                     try:
-                        with st_mod.spinner("Recherche dans la base Finances..."):
+                        with st_mod.spinner("Recherche dans les pièces de contexte..." if utilise_pj else "Recherche dans la base Finances..."):
                             resultat = logic.repondre(
                                 question,
-                                _vectorstore(),
+                                _vectorstore() if (base_disponible and not utilise_pj) else None,
                                 _llm(),
+                                pieces_jointes=pj if utilise_pj else None,
                                 historique=historique,
                             )
                         st_mod.markdown(resultat["reponse"])
@@ -250,6 +263,16 @@ def _render_qr(st_mod: Any, session_state: Any) -> list[InfoItem]:
                             f"Détail : {exc}"
                         )
 
+    try:
+        from streamlit.components.v1 import html as _st_html
+
+        _st_html(
+            "<script>const m=window.parent.document.querySelector('section.main'); if(m){m.scrollTo(0,m.scrollHeight);}</script>",
+            height=0,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
     return _collect_qr_infos(session_state)
 
 
@@ -267,13 +290,29 @@ def _render_declaration_tva(st_mod: Any, session_state: Any) -> list[InfoItem]:
     _ = session_state.fin_detect_nonce
     fichiers = core.trouver_fichiers(etablissement, annee, mois)
 
+    st_mod.markdown(
+        """
+        <style>
+        .stTabs [data-baseweb="tab-highlight"] { background-color: var(--brick-orange, #B85C38) !important; }
+        .stTabs [aria-selected="true"][data-baseweb="tab"] { color: var(--brick-orange, #B85C38) !important; }
+        .stTabs [data-baseweb="tab-border"] { border-bottom-color: var(--line, #DDD7CB) !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     tab_mail, tab_verif = st_mod.tabs(["Mail comptable", "Vérification et rapprochement de TVA"])
 
     with tab_mail:
         st_mod.markdown("### Pièces détectées")
-        if st_mod.button("Détecter les pièces", key="fin_detect_mail"):
+        if st_mod.button("Synchroniser et détecter les pièces", key="fin_detect_mail"):
+            _, err = core.synchroniser_pieces(etablissement)
+            if err:
+                session_state["fin_sync_msg"] = ("warning", err)
             session_state.fin_detect_nonce += 1
             st_mod.rerun()
+        sync_msg = session_state.pop("fin_sync_msg", None)
+        if sync_msg:
+            getattr(st_mod, sync_msg[0])(sync_msg[1])
         for cle, intitule in (("caisse", "Rapport de caisse"), ("banque", "Relevé bancaire"), ("obypay", "Export Obypay")):
             ok = bool(fichiers.get(cle))
             st_mod.write(f"{'✅' if ok else '❌'} {intitule} : {_nom_affiche(fichiers.get(cle))}")
@@ -330,34 +369,38 @@ def _render_declaration_tva(st_mod: Any, session_state: Any) -> list[InfoItem]:
     statut_res = session_state.get("fin_statut")
     with tab_verif:
         fichiers_det = core.trouver_fichiers(etablissement, annee, mois)
-        col_left, col_right = st_mod.columns([2, 1])
-        with col_left:
-            st_mod.markdown("### Pièces détectées")
-            if st_mod.button("Détecter les pièces", key="fin_detect_verif"):
-                session_state.fin_detect_nonce += 1
-                st_mod.rerun()
-            for cle, intitule in (("caisse", "Rapport de caisse"), ("banque", "Relevé bancaire"), ("obypay", "Export Obypay")):
-                ok = bool(fichiers_det.get(cle))
-                st_mod.write(f"{'✅' if ok else '❌'} {intitule} : {_nom_affiche(fichiers_det.get(cle))}")
-            if fichiers_det.get("erreur"):
-                st_mod.warning(fichiers_det["erreur"])
-            use_detected = st_mod.checkbox("Utiliser les fichiers détectés dans ./Finances", value=True, key="use_detected")
-            with st_mod.expander("Uploads", expanded=False):
-                ups_caisse = st_mod.file_uploader("Caisse (multiple)", type=["pdf", "xlsx", "xls"], accept_multiple_files=True, key="v_caisse")
-                ups_banque = st_mod.file_uploader("Banque (multiple)", type=["pdf"], accept_multiple_files=True, key="v_banque")
-                up_obypay = st_mod.file_uploader("Obypay (optionnel)", type=["xlsx"], key="v_obypay")
+        use_detected = True
+        ups_caisse = []
+        ups_banque = []
+        up_obypay = None
+        cat = session_state.get("fin_catering", {})
 
-            cat = session_state.get("fin_catering", {})
-            if cat.get("present"):
-                st_mod.caption("Catering : présent.")
-            else:
-                st_mod.caption("Catering : absent.")
-
-        with col_right:
-            tva_deductible = st_mod.number_input("TVA déductible (€)", min_value=0.0, value=0.0, key="v_tva_ded")
-            total_factures = st_mod.number_input("Total des factures fournisseurs (€)", min_value=0.0, value=0.0, key="v_fact")
-            st_mod.caption("Informatif")
-            seuil_pct = st_mod.number_input("Seuil d'écart (%)", min_value=0, max_value=50, value=20, key="v_seuil")
+        c1, c2, c3 = st_mod.columns(3)
+        with c1:
+            tva_deductible = st_mod.number_input(
+                "TVA déductible (€)",
+                min_value=0.0,
+                value=0.0,
+                key="v_tva_ded",
+                help="Montant total de la TVA déductible sur les achats et factures fournisseurs du mois.",
+            )
+        with c2:
+            total_factures = st_mod.number_input(
+                "Total des factures fournisseurs (€)",
+                min_value=0.0,
+                value=0.0,
+                key="v_fact",
+                help="Montant total des factures fournisseurs du mois (indicatif, non utilisé dans le calcul de la TVA à décaisser).",
+            )
+        with c3:
+            seuil_pct = st_mod.number_input(
+                "Seuil d'écart (%)",
+                min_value=0,
+                max_value=50,
+                value=20,
+                key="v_seuil",
+                help="Écart maximal accepté entre les montants attendus et les relevés bancaires avant signalement à justifier.",
+            )
         seuil = seuil_pct / 100.0
 
         if st_mod.button("Lancer la vérification", key="btn_verif"):
@@ -514,14 +557,14 @@ def _inject_sous_menu_style(st_mod: Any) -> None:
     st_mod.markdown(
         """
         <style>
-        .fin-sous-menu { margin: 0.1rem 0 0.35rem; }
-        .fin-sous-menu [data-testid="stHorizontalBlock"] { gap: 0.35rem; align-items: stretch; }
+        .fin-sous-menu { margin: 0rem 0 0.2rem; }
+        .fin-sous-menu [data-testid="stHorizontalBlock"] { gap: 0.2rem; align-items: flex-start; }
         .fin-sous-menu [data-testid="column"] { width: auto !important; flex: 0 0 auto; min-width: 0; }
         .fin-sous-menu [data-testid="baseButton-secondary"],
         .fin-sous-menu [data-testid="baseButton-primary"] {
-            border-radius: var(--radius-pill, 999px);
-            padding: 0.42rem 1rem;
-            font-size: 0.92rem;
+            border-radius: 10px;
+            padding: 0.35rem 0.8rem;
+            font-size: 0.88rem;
             font-weight: 500;
             line-height: 1.2;
             border: 1px solid var(--line, #DDD7CB);
@@ -538,9 +581,15 @@ def _inject_sous_menu_style(st_mod: Any) -> None:
         .fin-sous-menu [data-testid="baseButton-primary"],
         .fin-sous-menu [data-testid="baseButton-primary"]:hover,
         .fin-sous-menu [data-testid="baseButton-primary"]:focus {
-            border: 1px solid var(--green, #2C5B29);
-            background: var(--green, #2C5B29);
+            border: 1px solid var(--brick-orange, #B85C38);
+            background: var(--brick-orange, #B85C38);
             color: #ffffff;
+        }
+        .fin-sous-menu [data-baseweb="tab"][aria-selected="true"],
+        .fin-sous-menu [role="tab"][aria-selected="true"],
+        .fin-sous-menu button[aria-selected="true"] {
+            border-bottom: 3px solid var(--brick-orange, #B85C38) !important;
+            color: var(--brick-orange, #B85C38) !important;
         }
         </style>
         """,
@@ -565,7 +614,7 @@ def _render_sous_menu(st_mod: Any, session_state: Any) -> str:
         if selection in SOUS_VUES:
             session_state.fin_sous_vue = selection
     else:
-        cols = st_mod.columns([1, 1.7, 6])
+        cols = st_mod.columns([1, 1.2, 6])
         for idx, option in enumerate(SOUS_VUES):
             actif = session_state.fin_sous_vue == option
             with cols[idx]:

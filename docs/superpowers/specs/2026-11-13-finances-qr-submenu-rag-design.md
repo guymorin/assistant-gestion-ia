@@ -53,7 +53,7 @@ L’objectif est de :
 - **Titre** : `Q&R` (titre dynamique).
 - **Contenu sous le titre (ordre et texte exacts)** :
   1. Texte descriptif (ex. `st.caption`) : `Posez vos questions Finances : les reponses sont fondees sur les documents indexes, avec leurs sources.`
-  2. Avertissement (ex. `st.caption` / conteneur markdown) : `⚠️ Reponse generee automatiquement : verifiez toujours les sources affichees avant toute decision administrative et financière.`
+  2. Avertissement (ex. `st.caption` / conteneur markdown) : `⚠️  Réponse génerée automatiquement : vérifiez toujours les sources affichées avant toute décision administrative et financière.`
   3. Saisie de question : `st.chat_input` (recommandé, cohérent avec RH).
 - **Comportement Q&R (similaire à RH)** :
   - Historique des échanges Finances en session (état dédié, ex. `fin_messages`), affichage utilisateur/assistant et sources des réponses.

@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 COMPTABLE_DIR = "./Finances"
-CONFIG_FILE = Path(COMPTABLE_DIR) / "Finances-config.txt"
+CONFIG_FILE = Path("Assistant-de-Gestion.config")
 ETABLISSEMENTS = {
     "HEE-REP-93100": {
         "prefixe_fichiers": "Republique",
@@ -63,7 +63,7 @@ def mois_precedent(jour: date | None = None) -> tuple[int, int]:
 
 
 def _libelle_mail_depuis_config(etablissement: str, config_path: str | Path = CONFIG_FILE) -> str | None:
-    """Lit le libellé mail (4e champ optionnel) pour un établissement dans Finances-config.txt."""
+    """Lit le libellé mail (4e champ optionnel) pour un établissement dans Assistant-de-Gestion.config."""
     chemin = Path(config_path)
     if not chemin.is_file():
         return None
@@ -85,11 +85,12 @@ def _libelle_mail_depuis_config(etablissement: str, config_path: str | Path = CO
 
 
 def libelle_etablissement_mail(etablissement: str) -> str:
-    """Libellé société pour l'objet du mail, paramétrable via Finances-config.txt."""
+    """Libellé société pour l'objet du mail, paramétrable via Assistant-de-Gestion.config."""
     libelle = _libelle_mail_depuis_config(etablissement)
     if libelle:
         return libelle
-    return ETABLISSEMENTS[etablissement]["libelle"]
+    cfg = ETABLISSEMENTS.get(etablissement)
+    return (cfg or {}).get("libelle", etablissement)
 
 
 def _premier_existant(candidats) -> Path | None:
@@ -112,6 +113,99 @@ def _caisse_du_mois(dossier: Path, prefixe: str, annee: int, mois: int) -> Path 
     )
 
 
+def _config_path(base_dir: str | Path = COMPTABLE_DIR) -> Path:
+    config_path = Path("Assistant-de-Gestion.config")
+    if not config_path.is_file() and str(base_dir) != str(COMPTABLE_DIR):
+        config_path = Path(base_dir) / "Assistant-de-Gestion.config"
+    return config_path
+
+
+def lire_entree_config(etablissement: str, base_dir: str | Path = COMPTABLE_DIR) -> dict[str, str]:
+    """Retourne {source, cible, mode, libelle_mail} pour un établissement."""
+    defaut = {
+        "source": str(Path(base_dir) / etablissement),
+        "cible": str(Path(base_dir) / etablissement),
+        "mode": "automatique",
+        "libelle_mail": ETABLISSEMENTS.get(etablissement, {}).get("libelle", etablissement),
+    }
+    config_path = _config_path(base_dir)
+    if not config_path.is_file():
+        return defaut
+    try:
+        for line in config_path.read_text(encoding="utf-8").splitlines():
+            brute = line.strip()
+            if not brute or brute.startswith("#") or ":" not in brute:
+                continue
+            nom, reste = brute.split(":", 1)
+            if nom.strip() != etablissement:
+                continue
+            champs = [c.strip() for c in reste.split(";")]
+            source = champs[0] if champs else defaut["source"]
+            cible = champs[1] if len(champs) > 1 and champs[1] else source
+            mode = champs[2] if len(champs) > 2 and champs[2] else "automatique"
+            libelle = champs[3] if len(champs) > 3 and champs[3] else defaut["libelle_mail"]
+            return {"source": source or defaut["source"], "cible": cible or defaut["cible"], "mode": mode, "libelle_mail": libelle}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Lecture Assistant-de-Gestion.config (%s): %s", config_path, exc)
+    return defaut
+
+
+def _lire_repertoires_config(base_dir: str | Path = COMPTABLE_DIR) -> dict[str, str]:
+    """Lit le fichier Assistant-de-Gestion.config et renvoie {établissement: répertoire cible}.
+
+    Repli sur le répertoire par défaut si le fichier ou l'entrée est absente.
+    """
+    config_path = _config_path(base_dir)
+    if not config_path.is_file():
+        return {}
+    result: dict[str, str] = {}
+    try:
+        for line in config_path.read_text(encoding="utf-8").splitlines():
+            brute = line.strip()
+            if not brute or brute.startswith("#") or ":" not in brute:
+                continue
+            nom, reste = brute.split(":", 1)
+            etab = nom.strip()
+            champs = [c.strip() for c in reste.split(";")]
+            cible = champs[1] if len(champs) > 1 and champs[1] else ""
+            if not cible and champs:
+                cible = champs[0]
+            if etab and cible:
+                result[etab] = cible
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Lecture Assistant-de-Gestion.config (%s): %s", config_path, exc)
+    return result
+
+
+def synchroniser_pieces(etablissement: str, base_dir: str | Path = COMPTABLE_DIR) -> tuple[int, str | None]:
+    """Copie les fichiers du répertoire source vers le répertoire cible (synchronisation)."""
+    entree = lire_entree_config(etablissement, base_dir=base_dir)
+    source = Path(entree["source"]).expanduser()
+    cible = Path(entree["cible"]).expanduser()
+    if not source.is_dir():
+        return 0, f"Répertoire source introuvable : {source}"
+    try:
+        cible.mkdir(parents=True, exist_ok=True)
+        nb = 0
+        for src in source.iterdir():
+            if not src.is_file():
+                continue
+            shutil.copy2(src, cible / src.name)
+            nb += 1
+        return nb, None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Synchronisation pièces (%s): %s", etablissement, exc)
+        return 0, str(exc)
+
+
+def repertoire_pieces(etablissement: str, base_dir: str | Path = COMPTABLE_DIR) -> Path:
+    """Répertoire effectif des pièces d'un établissement (paramètre global)."""
+    repertoires = _lire_repertoires_config(base_dir)
+    if etablissement in repertoires:
+        return Path(repertoires[etablissement])
+    return Path(base_dir) / etablissement
+
+
 def trouver_fichiers(
     etablissement: str,
     annee: int,
@@ -125,7 +219,19 @@ def trouver_fichiers(
         "obypay": None,
         "erreur": None,
     }
-    dossier = Path(base_dir) / etablissement
+    if etablissement not in ETABLISSEMENTS:
+        resultat["erreur"] = f"Établissement inconnu : {etablissement}"
+        return resultat
+    if str(base_dir) == str(COMPTABLE_DIR):
+        dossier = repertoire_pieces(etablissement)
+    else:
+        base = Path(base_dir).resolve()
+        dossier = (base / etablissement).resolve()
+        try:
+            dossier.relative_to(base)
+        except ValueError:
+            resultat["erreur"] = f"Dossier invalide pour {etablissement}"
+            return resultat
     if not dossier.is_dir():
         resultat["erreur"] = f"Dossier {dossier} introuvable"
         return resultat
@@ -171,10 +277,21 @@ def dernier_mois_disponible(
     etablissement: str, base_dir: str | Path = COMPTABLE_DIR
 ) -> tuple[int, int] | None:
     """Mois le plus récent avec caisse et banque, sinon avec l'une des deux."""
-    dossier = Path(base_dir) / etablissement
+    cfg = ETABLISSEMENTS.get(etablissement)
+    if not cfg:
+        return None
+    if str(base_dir) == str(COMPTABLE_DIR):
+        dossier = repertoire_pieces(etablissement)
+    else:
+        base = Path(base_dir).resolve()
+        dossier = (base / etablissement).resolve()
+        try:
+            dossier.relative_to(base)
+        except ValueError:
+            return None
     if not dossier.is_dir():
         return None
-    prefixe = ETABLISSEMENTS[etablissement]["prefixe_fichiers"]
+    prefixe = cfg["prefixe_fichiers"]
     caisses, banques = _mois_caisse_banque(dossier, prefixe)
     complets = caisses & banques
     if complets:

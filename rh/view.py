@@ -131,7 +131,7 @@ def _collect_rh_infos(session_state: Any, langue: str) -> list[InfoItem]:
 
 def _collect_onboarding_infos(session_state: Any) -> list[InfoItem]:
     checklist = session_state.get("rh_onb_checklist") or {}
-    total = 6
+    total = 7
     fait = sum(1 for i in range(1, total + 1) if checklist.get(f"etape_{i}"))
     data = session_state.get("rh_onb_data") or {}
     etab = data.get("etablissement") or "non sélectionné"
@@ -225,7 +225,7 @@ def _inject_sous_menu_style(st_mod: Any) -> None:
         .rh-sous-menu [data-testid="column"] { width: auto !important; flex: 0 0 auto; min-width: 0; }
         .rh-sous-menu [data-testid="baseButton-secondary"],
         .rh-sous-menu [data-testid="baseButton-primary"] {
-            border-radius: var(--radius-pill, 999px);
+            border-radius: 10px;
             padding: 0.35rem 0.8rem;
             font-size: 0.88rem;
             font-weight: 500;
@@ -244,9 +244,15 @@ def _inject_sous_menu_style(st_mod: Any) -> None:
         .rh-sous-menu [data-testid="baseButton-primary"],
         .rh-sous-menu [data-testid="baseButton-primary"]:hover,
         .rh-sous-menu [data-testid="baseButton-primary"]:focus {
-            border: 1px solid var(--green, #2C5B29);
-            background: var(--green, #2C5B29);
+            border: 1px solid var(--brick-orange, #B85C38);
+            background: var(--brick-orange, #B85C38);
             color: #ffffff;
+        }
+        .rh-sous-menu [data-baseweb="tab"][aria-selected="true"],
+        .rh-sous-menu [role="tab"][aria-selected="true"],
+        .rh-sous-menu button[aria-selected="true"] {
+            border-bottom: 3px solid var(--brick-orange, #B85C38) !important;
+            color: var(--brick-orange, #B85C38) !important;
         }
         </style>
         """,
@@ -272,7 +278,7 @@ def _render_sous_menu(st_mod: Any, session_state: Any) -> str:
             session_state.rh_sous_vue = selection
     else:
         # Utilisation de colonnes alignées en haut pour matcher l'axe des blocs latéraux droits
-        cols = st_mod.columns([1, 1.2, 6], gap="small")
+        cols = st_mod.columns([1, 1.2, 6])
         for idx, option in enumerate(SOUS_VUES):
             actif = session_state.rh_sous_vue == option
             with cols[idx]:
@@ -320,11 +326,13 @@ def _render_formulaire_onboarding(st_mod: Any, session_state: Any) -> dict[str, 
 
     st_mod.subheader("Informations du salarié")
     st_mod.caption(
-        "Saisissez les informations pour pré-remplir les documents modèles (RH-Onboarding) "
-        "et alimenter la checklist/DPAE. Vérifiez toujours les documents générés dans LibreOffice."
+        "Ces informations servent à pré-remplir les documents RH et la DPAE. "
+        "Vérifiez toujours les documents générés avant signature ou envoi."
     )
 
-    col1, col2, col3 = st_mod.columns([1, 2, 2])
+    # --- Identité ---
+    st_mod.markdown("#### Identité")
+    col1, col2, col3 = st_mod.columns([1, 2, 2], gap="medium")
     with col1:
         data["civilite"] = st_mod.selectbox(
             "Civilité",
@@ -335,26 +343,32 @@ def _render_formulaire_onboarding(st_mod: Any, session_state: Any) -> dict[str, 
     with col2:
         data["prenom"] = st_mod.text_input("Prénom", value=data.get("prenom", ""), key="onb_prenom")
     with col3:
-        data["nom"] = st_mod.text_input("NOM", value=data.get("nom", ""), key="onb_nom")
+        data["nom"] = st_mod.text_input("Nom", value=data.get("nom", ""), key="onb_nom")
 
-    data["adresse"] = st_mod.text_input("Adresse", value=data.get("adresse", ""), key="onb_adresse")
+    data["adresse"] = st_mod.text_input(
+        "Adresse postale",
+        value=data.get("adresse", ""),
+        placeholder="Numéro, voie, code postal, ville",
+        key="onb_adresse",
+    )
 
-    c1, c2, c3 = st_mod.columns(3)
+    st_mod.markdown("#### État civil et identification")
+    c1, c2, c3 = st_mod.columns(3, gap="medium")
     with c1:
         data["date_naissance"] = st_mod.text_input(
             "Date de naissance", value=data.get("date_naissance", ""), placeholder="JJ/MM/AAAA", key="onb_dnaiss"
         )
     with c2:
         data["lieu_naissance"] = st_mod.text_input(
-            "Lieu de naissance", value=data.get("lieu_naissance", ""), placeholder="Ville (Pays)", key="onb_lnaiss"
+            "Lieu de naissance", value=data.get("lieu_naissance", ""), placeholder="Ville (pays)", key="onb_lnaiss"
         )
     with c3:
         data["nationalite"] = st_mod.text_input("Nationalité", value=data.get("nationalite", ""), key="onb_nat")
 
-    c1, c2 = st_mod.columns(2)
+    c1, c2 = st_mod.columns(2, gap="medium")
     with c1:
         data["numero_secu"] = st_mod.text_input(
-            "N° de sécurité sociale", value=data.get("numero_secu", ""), key="onb_secu"
+            "N° de sécurité sociale", value=data.get("numero_secu", ""), placeholder="15 chiffres", key="onb_secu"
         )
     with c2:
         if etabs:
@@ -364,16 +378,20 @@ def _render_formulaire_onboarding(st_mod: Any, session_state: Any) -> dict[str, 
             st_mod.warning("Aucun établissement trouvé dans RH-Onboarding.")
             data["etablissement"] = st_mod.text_input("Établissement", value=data.get("etablissement", ""), key="onb_etab_txt")
 
+    st_mod.divider()
+
+    # --- Contrat ---
+    st_mod.markdown("#### Poste et contrat")
     data["type_emploi"] = st_mod.text_input(
-        "Type d'emploi (CCN restauration rapide)",
+        "Intitulé du poste / emploi (CCN restauration rapide)",
         value=data.get("type_emploi", onboarding.CHAMPS_DEFAUT["type_emploi"]),
         key="onb_emploi",
     )
 
-    c1, c2, c3 = st_mod.columns(3)
+    c1, c2, c3 = st_mod.columns(3, gap="medium")
     with c1:
         data["date_debut_contrat"] = st_mod.text_input(
-            "Date de début de contrat", value=data.get("date_debut_contrat", ""), placeholder="JJ/MM/AAAA", key="onb_debut"
+            "Date de début du contrat", value=data.get("date_debut_contrat", ""), placeholder="JJ/MM/AAAA", key="onb_debut"
         )
     with c2:
         data["heure_debut"] = st_mod.text_input(
@@ -384,11 +402,22 @@ def _render_formulaire_onboarding(st_mod: Any, session_state: Any) -> dict[str, 
             "Durée hebdomadaire (h)", min_value=0.0, max_value=60.0, value=float(data.get("duree_hebdo", 35.0) or 0.0), step=0.5, key="onb_duree"
         )
 
-    data["horaires"] = st_mod.text_input("Horaires", value=data.get("horaires", ""), placeholder="ex. 09:00-17:00 du lundi au vendredi", key="onb_horaires")
+    data["horaires"] = st_mod.text_input(
+        "Horaires prévisionnels",
+        value=data.get("horaires", ""),
+        placeholder="Ex. 09:00–17:00, du lundi au vendredi",
+        key="onb_horaires",
+    )
 
-    st_mod.markdown("**Rémunération (auto-calcul modifiable)**")
-    st_mod.caption("Base de calcul : durée hebdomadaire × 52 / 12. Modifiez l’un des montants puis utilisez le recalcul souhaité.")
-    c1, c2, c3, c4 = st_mod.columns([2, 2, 1.3, 1.3])
+    st_mod.divider()
+
+    # --- Rémunération ---
+    st_mod.markdown("#### Rémunération")
+    st_mod.caption(
+        "Saisissez le salaire ou le taux horaire, puis utilisez le recalcul adapté "
+        "(base : durée hebdomadaire × 52 / 12). Les valeurs restent modifiables."
+    )
+    c1, c2 = st_mod.columns(2, gap="medium")
     with c1:
         data["salaire_brut_mensuel"] = st_mod.number_input(
             "Salaire brut mensuel (€)", min_value=0.0, value=float(onboarding._to_float(data.get("salaire_brut_mensuel"))), step=10.0, key="onb_salaire"
@@ -397,20 +426,27 @@ def _render_formulaire_onboarding(st_mod: Any, session_state: Any) -> dict[str, 
         data["taux_horaire_brut"] = st_mod.number_input(
             "Taux horaire brut (€)", min_value=0.0, value=float(onboarding._to_float(data.get("taux_horaire_brut"))), step=0.1, format="%.2f", key="onb_taux"
         )
-    with c3:
-        if st_mod.button("↻ Taux depuis salaire", key="onb_calc_taux", use_container_width=True):
+
+    b1, b2, _ = st_mod.columns([1.4, 1.4, 2], gap="small")
+    with b1:
+        if st_mod.button("Calculer le taux depuis le salaire", key="onb_calc_taux", use_container_width=True):
             data["taux_horaire_brut"] = onboarding.calculer_taux_depuis_salaire(data.get("duree_hebdo", 0), data.get("salaire_brut_mensuel", 0))
+            session_state["onb_taux"] = data["taux_horaire_brut"]
             st_mod.rerun()
-    with c4:
-        if st_mod.button("↻ Salaire depuis taux", key="onb_calc_salaire", use_container_width=True):
+    with b2:
+        if st_mod.button("Calculer le salaire depuis le taux", key="onb_calc_salaire", use_container_width=True):
             data["salaire_brut_mensuel"] = onboarding.calculer_salaire_depuis_taux(data.get("duree_hebdo", 0), data.get("taux_horaire_brut", 0))
+            session_state["onb_salaire"] = data["salaire_brut_mensuel"]
             st_mod.rerun()
 
     session_state.rh_onb_data = data
     return data
 
 
-def _render_modeles(st_mod: Any, data: dict[str, Any], filtre: list[str] | None = None) -> None:
+
+
+
+def _render_modeles(st_mod: Any, data: dict[str, Any], filtre: list[str] | None = None, key_prefix: str = "m") -> None:
     etab = data.get("etablissement") or ""
     if not etab:
         st_mod.caption("Sélectionnez un établissement pour accéder aux modèles.")
@@ -423,40 +459,41 @@ def _render_modeles(st_mod: Any, data: dict[str, Any], filtre: list[str] | None 
         st_mod.caption("Aucun modèle correspondant dans RH-Onboarding pour cet établissement.")
         return
     for modele in modeles:
-        cols = st_mod.columns([3, 1.2, 1.4])
+        cols = st_mod.columns([3, 1.2, 1.2])
+        suffix = modele.suffix.lower()
+        base_key = f"{key_prefix}_{etab}_{modele.name}"
         with cols[0]:
             st_mod.caption(f"📄 {modele.name}")
         try:
             original = modele.read_bytes()
         except Exception as exc:
-            with cols[1]:
-                st_mod.caption(f"Erreur: {exc}")
+            st_mod.caption(f"Erreur: {exc}")
             continue
         with cols[1]:
             st_mod.download_button(
-                "Original",
+                "Originale",
                 data=original,
                 file_name=modele.name,
                 mime="application/octet-stream",
-                key=f"dl_orig_{etab}_{modele.name}",
+                key=f"dl_orig_{base_key}",
                 use_container_width=True,
             )
         with cols[2]:
-            if modele.suffix.lower() in {".ott", ".odt"}:
+            if suffix in {".ott", ".odt"}:
                 try:
                     rempli, out_name = onboarding.generer_document_rempli(modele, data)
                     st_mod.download_button(
-                        "Pré-rempli",
+                        "Pré-remplie",
                         data=rempli,
                         file_name=out_name,
                         mime="application/vnd.oasis.opendocument.text",
-                        key=f"dl_fill_{etab}_{modele.name}",
+                        key=f"dl_fill_{base_key}",
                         use_container_width=True,
                     )
                 except Exception as exc:
                     st_mod.caption(f"Génération indisponible: {exc}")
             else:
-                st_mod.caption("Pré-remplissage non disponible (PDF)")
+                st_mod.caption("PDF (sans pré-remplissage)")
 
 
 def _checklist_item(st_mod: Any, session_state: Any, key: str, label: str) -> bool:
@@ -476,92 +513,155 @@ def _render_onboarding(st_mod: Any, session_state: Any) -> list[InfoItem]:
         "Ouvrez-les dans LibreOffice pour vérifier/compléter avant signature ou envoi."
     )
 
-    data = _render_formulaire_onboarding(st_mod, session_state)
+    st_mod.markdown(
+        """
+        <style>
+        .stTabs [data-baseweb="tab-highlight"] { background-color: var(--brick-orange, #B85C38) !important; }
+        .stTabs [aria-selected="true"][data-baseweb="tab"] { color: var(--brick-orange, #B85C38) !important; }
+        .stTabs [data-baseweb="tab-border"] { border-bottom-color: var(--line, #DDD7CB) !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    tab_creer, tab_checklist = st_mod.tabs(["Créer un nouveau salarié", "Checklist"])
 
-    st_mod.markdown("---")
-    st_mod.subheader("Checklist d’onboarding")
+    with tab_creer:
+        data = _render_formulaire_onboarding(st_mod, session_state)
+        if st_mod.button("Valider", type="primary", key="onb_valider"):
+            ok, msg = onboarding.creer_dossier_salarie(data)
+            if ok:
+                st_mod.success(
+                    f"Dossier salarié créé : {msg}. Les informations ont été mémorisées (.config) et peuvent être réutilisées pour la checklist."
+                )
+            else:
+                st_mod.error(msg)
 
-    # Étape 1
-    with st_mod.expander("1. Informations RH — Pour la gestion de son dossier RH", expanded=True):
-        _checklist_item(st_mod, session_state, "etape_1", "Étape 1 terminée")
-        st_mod.markdown(
-            "- Rechercher le document **Informations RH** pour la société : 🔍 Rechercher\n"
-            "- Télécharger les documents en cliquant à droite sur 📎 puis sur le document 📥\n"
-            "- Demander à l’employé(e) d’envoyer les informations par mail à l’adresse indiquée.\n"
-            "- Créer une nouvelle fiche Employé à partir des informations : Module Employés"
-        )
-        _render_modeles(st_mod, data, filtre=["Informations", "Accuse", "Accusé"])
+    with tab_checklist:
+        data = session_state.rh_onb_data
+        st_mod.subheader("Checklist d’onboarding")
 
-    # Étape 2
-    with st_mod.expander("2. Contrat de travail — Pour la signature de son contrat et des documents annexes", expanded=False):
-        _checklist_item(st_mod, session_state, "etape_2", "Étape 2 terminée")
-        st_mod.markdown(
-            "- Rechercher un modèle de **Contrat** pour la société : 🔍 Rechercher\n"
-            "- Télécharger les documents en cliquant à droite sur 📎 puis sur le document 📥\n"
-            "- Ouvrir le document dans LibreOffice Writer\n"
-            "- Modifier les variables de saisie à partir des informations RH.\n"
-            "- Imprimer le document en deux exemplaires et faire signer.\n"
-            "- Imprimer les autres documents si nécessaire : dispense de mutuelle, moins de 24h..."
-        )
-        _render_modeles(st_mod, data, filtre=["CDI", "Contrat", "Avenant", "Dispense", "Moins", "mutuelle"])
+        # Chargement d'un salarié enregistré (infos mémorisées dans le dossier)
+        etab_charge = (data.get("etablissement") or "").strip()
+        try:
+            from shared.portal_settings import load_portal_settings
 
-    # Étape 3
-    with st_mod.expander("3. Adhésion à SwissLife — Pour l’adhésion à la prévoyance et à la mutuelle", expanded=False):
-        _checklist_item(st_mod, session_state, "etape_3", "Étape 3 terminée")
-        st_mod.markdown(
-            "- Rechercher un modèle d’**Adhésion à SwissLife** pour la société :  🔍 Rechercher\n"
-            "- Télécharger le document en cliquant à droite sur 📎 puis sur le document 📥\n"
-            "- Remplir le document et l’envoyer par mail à l’agence SwissLife accompagné de l’attestation Ameli et du RIB-IBAN de l’employé(e) : "
-            "📧 [vincennes@agence-swisslife.fr](mailto:vincennes@agence-swisslife.fr)"
-        )
-        _render_modeles(st_mod, data, filtre=["Swiss", "Mutuelle", "Adhesion", "Adhésion"])
+            base_charge = str((load_portal_settings().get("rh_base_paths") or {}).get(etab_charge) or "").strip()
+        except Exception:
+            base_charge = ""
+        if base_charge:
+            dossiers = onboarding.lister_dossiers_salaries_avec_config(base_charge)
+            if dossiers:
+                options = ["(formulaire en cours)"] + [d.name for d in dossiers]
+                selection = st_mod.selectbox(
+                    "Salarié enregistré (charger les informations mémorisées)",
+                    options=options,
+                    key="onb_select_salarie",
+                    help="Charge les informations enregistrées dans le fichier .config du dossier salarié pour réutiliser la checklist.",
+                )
+                if selection != "(formulaire en cours)":
+                    if st_mod.button("Charger", key="onb_charger_salarie"):
+                        choisi = next((d for d in dossiers if d.name == selection), None)
+                        if choisi is not None:
+                            charge = onboarding.charger_config_salarie(choisi)
+                            if charge is not None:
+                                merged = dict(onboarding.CHAMPS_DEFAUT)
+                                merged.update(charge)
+                                session_state.rh_onb_data = merged
+                                # synchronise les champs du formulaire pour refléter les données chargées
+                                session_state["onb_civilite"] = merged.get("civilite", "M.")
+                                session_state["onb_prenom"] = merged.get("prenom", "")
+                                session_state["onb_nom"] = merged.get("nom", "")
+                                session_state["onb_adresse"] = merged.get("adresse", "")
+                                session_state["onb_dnaiss"] = merged.get("date_naissance", "")
+                                session_state["onb_lnaiss"] = merged.get("lieu_naissance", "")
+                                session_state["onb_nat"] = merged.get("nationalite", "")
+                                session_state["onb_secu"] = merged.get("numero_secu", "")
+                                session_state["onb_etab"] = merged.get("etablissement", "")
+                                session_state["onb_etab_txt"] = merged.get("etablissement", "")
+                                session_state["onb_emploi"] = merged.get(
+                                    "type_emploi", onboarding.CHAMPS_DEFAUT.get("type_emploi", "")
+                                )
+                                session_state["onb_debut"] = merged.get("date_debut_contrat", "")
+                                session_state["onb_heure"] = merged.get("heure_debut", "09:00")
+                                session_state["onb_duree"] = float(onboarding._to_float(merged.get("duree_hebdo", 35.0)))
+                                session_state["onb_horaires"] = merged.get("horaires", "")
+                                session_state["onb_salaire"] = float(
+                                    onboarding._to_float(merged.get("salaire_brut_mensuel", 0.0))
+                                )
+                                session_state["onb_taux"] = float(
+                                    onboarding._to_float(merged.get("taux_horaire_brut", 0.0))
+                                )
+                                st_mod.success(f"Informations chargées depuis : {choisi}")
+                                st_mod.rerun()
+                            else:
+                                st_mod.error("Impossible de lire le fichier .config de ce salarié.")
+            else:
+                st_mod.caption(
+                    "Aucun salarié enregistré (.config) trouvé pour cet établissement dans le chemin RH configuré."
+                )
+        elif etab_charge:
+            st_mod.caption(
+                "Chemin racine RH non configuré pour cet établissement : enregistrez-le dans Paramètres pour charger des salariés mémorisés."
+            )
+        else:
+            st_mod.caption("Sélectionnez un établissement dans le formulaire pour charger un salarié enregistré.")
 
-    # Étape 4
-    with st_mod.expander("4. Règlement intérieur — Pour que le règlement soit connu de l’employé(e)", expanded=False):
-        _checklist_item(st_mod, session_state, "etape_4", "Étape 4 terminée")
-        st_mod.markdown(
-            "- Rechercher le **Règlement intérieur** pour la société : 🔍 Rechercher\n"
-            "- Télécharger les documents en cliquant à droite sur 📎 puis sur le document 📥\n"
-            "- Ouvrir le document dans LibreOffice Writer\n"
-            "- Modifier les variables de saisie à partir des informations RH.\n"
-            "- Imprimer et faire signer."
-        )
-        _render_modeles(st_mod, data, filtre=["Reglement", "Règlement", "Interieur", "Intérieur"])
+        checklist = session_state.rh_onb_checklist
 
-    # Étape 5
-    with st_mod.expander("5. Déclaration d’embauche (DPAE) — Conformité Urssaf (~48h avant le début de contrat)", expanded=False):
-        _checklist_item(st_mod, session_state, "etape_5", "Étape 5 terminée")
-        st_mod.markdown(
-            "- Copier-coller ce modèle de message et modifier les informations :\n"
-            "- Envoyer le message au cabinet comptable Bruno Encaoua : 📧 [r.benassayag@orange.fr](mailto:r.benassayag@orange.fr)\n"
-            "  - avec en PJ : pièce d’identité et attestation Ameli"
-        )
-        msg = onboarding.message_dpae(data)
-        st_mod.text_area("Modèle de message DPAE (pré-rempli)", value=msg, height=320, key="onb_dpae_msg")
-        st_mod.download_button(
-            "Télécharger le message DPAE (.txt)",
-            data=msg.encode("utf-8"),
-            file_name="dpae-message.txt",
-            mime="text/plain",
-            key="dl_dpae_msg",
-        )
+        # Étape 1
+        with st_mod.expander("1. Informations RH — Pour la gestion de son dossier RH", expanded=not checklist.get("etape_1")):
+            _checklist_item(st_mod, session_state, "etape_1", "Étape 1 terminée")
+            st_mod.markdown(
+                "- Remettre le document **Informations RH** au salarié pour qu’il le complète.\n"
+                "- Demander au salarié d’envoyer les informations par mail à l’adresse indiquée."
+            )
+            _render_modeles(st_mod, data, filtre=["Informations", "Accuse", "Accusé"], key_prefix="etape1")
 
-    # Étape 6
-    with st_mod.expander("6. Visite d’Information et de Prévention (VIP) — Visite médicale obligatoire", expanded=False):
-        _checklist_item(st_mod, session_state, "etape_6", "Étape 6 terminée")
-        st_mod.markdown("- Demander sur Amet : 🌐 [https://amet.padoa.fr/](https://amet.padoa.fr/)")
+        # Étape 2
+        with st_mod.expander("2. Fiche salarié Odoo — Création de la fiche salarié", expanded=not checklist.get("etape_2")):
+            _checklist_item(st_mod, session_state, "etape_2", "Étape 2 terminée")
+            st_mod.markdown("- Créer une nouvelle fiche pour le salarié sur Odoo à partir des informations recueillies.")
 
-    st_mod.markdown("---")
-    with st_mod.expander("Récapitulatif des informations saisies", expanded=False):
-        recap = onboarding.recapitulatif(data)
-        st_mod.code(recap, language="text")
-        st_mod.download_button(
-            "Télécharger le récapitulatif (.txt)",
-            data=recap.encode("utf-8"),
-            file_name="informations-salarie.txt",
-            mime="text/plain",
-            key="dl_recap_onb",
-        )
+        # Étape 3
+        with st_mod.expander("3. Contrat de travail — Pour la signature de son contrat et des documents annexes", expanded=not checklist.get("etape_3")):
+            _checklist_item(st_mod, session_state, "etape_3", "Étape 3 terminée")
+            st_mod.markdown(
+                "- Imprimer le document en deux exemplaires et faire signer.\n"
+                "- Imprimer les autres documents si nécessaire : dispense de mutuelle, moins de 24h..."
+            )
+            _render_modeles(st_mod, data, filtre=["CDI", "Contrat", "Avenant", "Dispense", "Moins", "mutuelle"], key_prefix="etape3")
+
+        # Étape 4
+        with st_mod.expander("4. Adhésion à SwissLife — Pour l’adhésion à la prévoyance et à la mutuelle", expanded=not checklist.get("etape_4")):
+            _checklist_item(st_mod, session_state, "etape_4", "Étape 4 terminée")
+            st_mod.markdown(
+                "- Remplir le document et l’envoyer par mail à l’agence SwissLife accompagné de l’attestation Ameli et du RIB-IBAN du salarié : "
+                "📧 [vincennes@agence-swisslife.fr](mailto:vincennes@agence-swisslife.fr)"
+            )
+            _render_modeles(st_mod, data, filtre=["Swiss", "Mutuelle", "Adhesion", "Adhésion"], key_prefix="etape4")
+
+        # Étape 5
+        with st_mod.expander("5. Règlement intérieur — Pour que le règlement soit connu du salarié", expanded=not checklist.get("etape_5")):
+            _checklist_item(st_mod, session_state, "etape_5", "Étape 5 terminée")
+            st_mod.markdown(
+                "- Imprimer et faire signer."
+            )
+            _render_modeles(st_mod, data, filtre=["Reglement", "Règlement", "Interieur", "Intérieur"], key_prefix="etape5")
+
+        # Étape 6
+        with st_mod.expander("6. Déclaration d’embauche (DPAE) — Conformité Urssaf (~48h avant le début de contrat)", expanded=not checklist.get("etape_6")):
+            _checklist_item(st_mod, session_state, "etape_6", "Étape 6 terminée")
+            st_mod.markdown(
+                "- Envoyer le message au cabinet comptable Bruno Encaoua : 📧 [r.benassayag@orange.fr](mailto:r.benassayag@orange.fr)\n"
+                "  - avec en PJ : pièce d’identité et attestation Ameli"
+            )
+            msg = onboarding.message_dpae(data)
+            st_mod.text_area("Modèle de message DPAE (pré-rempli)", value=msg, height=320, key="onb_dpae_msg")
+
+        # Étape 7
+        with st_mod.expander("7. Visite d’Information et de Prévention (VIP) — Visite médicale obligatoire", expanded=not checklist.get("etape_7")):
+            _checklist_item(st_mod, session_state, "etape_7", "Étape 7 terminée")
+            st_mod.markdown("- Demander sur Amet : 🌐 [https://amet.padoa.fr/](https://amet.padoa.fr/)")
 
     return _collect_onboarding_infos(session_state)
 

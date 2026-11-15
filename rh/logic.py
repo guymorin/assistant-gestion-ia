@@ -1085,28 +1085,8 @@ def _style(st: Any) -> None:
         h1 { font-weight: 700; letter-spacing: -0.02em; }
         [data-testid="stChatMessage"] { padding: 0.4rem 0; }
 
-        /* Animation de chargement : points de suspension qui clignotent. */
-        [data-testid="stSpinnerIcon"] { display: none; }
-        [data-testid="stSpinner"]::before {
-            content: "...";
-            font-size: 1.1rem;
-            line-height: 1;
-            letter-spacing: 0.1em;
-            margin-right: 0.35rem;
-            animation: points-clignotants 1.1s ease-in-out infinite;
-        }
-        @keyframes points-clignotants {
-            0%, 100% { opacity: 0.35; }
-            50% { opacity: 1; }
-        }
-        /* Masque l'icone animee du statut de chargement en haut a droite. */
-        [data-testid="stStatusWidgetRunningIcon"] { display: none; }
-
         /* Retire l'option "Record screen" du menu Streamlit. */
         [data-testid="stMainMenuItem-recordScreencast"] { display: none !important; }
-        @media (prefers-reduced-motion: reduce) {
-            [data-testid="stSpinner"]::before { animation: none; opacity: 1; }
-        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1141,8 +1121,8 @@ def main() -> None:
             "sont fondees sur les documents indexes, avec leurs sources."
         )
         st.caption(
-            "⚠️ Reponse generee automatiquement : verifiez toujours les sources "
-            "affichees avant toute decision juridique ou disciplinaire."
+            "⚠️  Réponse génerée automatiquement : vérifiez toujours les sources "
+            "affichées avant toute décision juridique ou disciplinaire."
         )
 
         index_pj = st.session_state.pieces_jointes

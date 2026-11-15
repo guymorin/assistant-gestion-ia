@@ -61,3 +61,15 @@ def test_run_portail_renders_footer_even_if_view_raises(monkeypatch):
     run_portail({"rh": boom}, st.session_state, st)
     assert st.errors  # erreur affichée
     assert rendered["items"]  # infos quand même rendues dans la barre latérale droite
+
+
+def test_theme_css_applique_le_mode_choisi():
+    from shared.ui import _theme_css
+
+    sombre = _theme_css("sombre")
+    systeme = _theme_css("systeme")
+    clair = _theme_css("clair")
+
+    assert "#191D1B" in sombre and "--paper" in sombre and "--surface" in sombre
+    assert "@media (prefers-color-scheme: dark)" in systeme and "#191D1B" in systeme
+    assert clair == ""

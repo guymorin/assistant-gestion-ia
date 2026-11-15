@@ -1044,32 +1044,16 @@ class FakeStreamlit:
 
 
 class TestStyle:
-    def test_masque_l_icone_de_spinner_native(self):
+    def test_ne_personnalise_pas_l_animation_de_chargement(self):
         st = FakeStreamlit()
 
         app_rh._style(st)
 
         css = "\n".join(st.markdowns)
-        assert '[data-testid="stSpinnerIcon"]' in css
-        assert "display: none" in css
-
-    def test_affiche_des_points_de_suspension_a_la_place(self):
-        st = FakeStreamlit()
-
-        app_rh._style(st)
-
-        css = "\n".join(st.markdowns)
-        assert 'content: "..."' in css
-        assert "🧠" not in css
-
-    def test_masque_les_icones_animees_du_statut_en_haut_a_droite(self):
-        st = FakeStreamlit()
-
-        app_rh._style(st)
-
-        css = "\n".join(st.markdowns)
-        assert '[data-testid="stStatusWidgetRunningIcon"]' in css
-        assert "display: none" in css
+        assert '[data-testid="stSpinnerIcon"]' not in css
+        assert '[data-testid="stStatusWidgetRunningIcon"]' not in css
+        assert "points-clignotants" not in css
+        assert 'content: "..."' not in css
 
     def test_masque_l_option_record_screen_du_menu(self):
         st = FakeStreamlit()

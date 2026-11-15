@@ -74,8 +74,90 @@ def _logo_data_uri() -> str:
     return ""
 
 
+def _theme_css(theme_mode: str) -> str:
+    dark_vars = """
+  --brick: #D07A58;
+  --paper: #191D1B;
+  --green: #4A8F52;
+  --ink: #ECEAE4;
+  --ink-muted: #9FA8A2;
+  --line: #353C37;
+  --surface: #232826;
+  --focus-ring: 0 0 0 3px rgba(74, 143, 82, 0.35);
+"""
+    dark_rules = """
+html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stAppViewContainer"] > .main {
+  background: var(--paper) !important;
+  color: var(--ink);
+}
+.portal-navbar {
+  background: rgba(25, 29, 27, 0.94) !important;
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(8px);
+}
+.portal-navbar .brand, .portal-navbar a.nav-item, .portal-navbar .nav-menu > summary { color: var(--ink) !important; }
+.portal-navbar .nav-menu > summary,
+.portal-navbar .nav-menu,
+[data-testid="stMainMenuButton"],
+[data-testid="stMainMenu"] button,
+[data-testid="stMainMenu"] [role="button"],
+[data-testid="stToolbar"] button,
+header[data-testid="stHeader"] button {
+  background: rgba(25, 29, 27, 0.94) !important;
+  color: var(--ink) !important;
+}
+[data-testid="stMainMenuButton"]:hover,
+[data-testid="stMainMenu"] button:hover,
+[data-testid="stToolbar"] button:hover {
+  background: rgba(35, 40, 38, 0.98) !important;
+}
+.portal-navbar a.nav-item:hover { background: var(--surface) !important; border-color: var(--line); }
+.portal-navbar .nav-dropdown { background: var(--surface); border-color: var(--line); box-shadow: 0 10px 28px rgba(0,0,0,0.35); }
+.portal-navbar .nav-dropdown a { color: var(--ink) !important; }
+.stButton > button,
+[data-testid="baseButton-primary"],
+[data-testid="baseButton-secondary"] {
+  border-color: var(--line) !important;
+  background: var(--surface) !important;
+  color: var(--ink) !important;
+}
+.stButton > button:hover,
+.stButton > button:focus-visible,
+[data-testid="baseButton-secondary"]:hover,
+[data-testid="baseButton-secondary"]:focus-visible {
+  border-color: #465049 !important;
+  background: #2C322F !important;
+  color: var(--ink) !important;
+}
+[data-testid="stChatMessage"], details, [data-testid="stExpander"], [data-testid="stChatInput"],
+[data-testid="stDataFrame"], [data-testid="stTable"] {
+  background: var(--surface) !important;
+  border-color: var(--line) !important;
+}
+[data-testid="stAlert"] { border-color: var(--line) !important; }
+[data-baseweb="input"] > div,
+[data-baseweb="select"] > div,
+[data-baseweb="textarea"] > div,
+.stTextInput input, .stTextArea textarea, .stNumberInput input,
+[data-testid="stChatInput"] textarea {
+  background: #1E2321 !important;
+  border-color: var(--line) !important;
+  color: var(--ink) !important;
+}
+small, .stCaption, [data-testid="stCaptionContainer"], p, li, label, .stMarkdown, [data-testid="stMarkdownContainer"] { color: var(--ink); }
+small, .stCaption, [data-testid="stCaptionContainer"] { color: var(--ink-muted) !important; }
+hr { border-color: var(--line); }
+"""
+    if theme_mode == "sombre":
+        return f"<style>:root {{{dark_vars}}}\n{dark_rules}</style>"
+    if theme_mode == "systeme":
+        return f"<style>@media (prefers-color-scheme: dark) {{ :root {{{dark_vars}}}\n{dark_rules} }}</style>"
+    return ""
+
+
 def _inject_global_styles(st: Any) -> None:
     """Injecte les tokens, la typographie Roboto et les styles globaux (refonte épurée)."""
+    theme_mode = st.session_state.get("theme_mode", "systeme")
     st.markdown(
         """
 <style>
@@ -156,6 +238,37 @@ header[data-testid="stHeader"],
   pointer-events: none !important;
 }
 
+/* Menu principal Streamlit (hamburger haut droit) : fond transparent, sans bordure, sans ombre */
+[data-testid="stMainMenuButton"],
+[data-testid="stMainMenu"] button,
+[data-testid="stMainMenu"] [role="button"],
+[data-testid="stToolbar"] button,
+header[data-testid="stHeader"] button {
+  background: rgba(246, 242, 234, 0.96) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+  border-radius: 0 !important;
+}
+[data-testid="stMainMenuButton"]:hover,
+[data-testid="stMainMenu"] button:hover,
+[data-testid="stToolbar"] button:hover {
+  background: rgba(246, 242, 234, 0.96) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Masquer l'animation native Streamlit (vélo, fauteuil roulant, etc.) */
+[data-testid="stSpinnerIcon"],
+[data-testid="stStatusWidgetRunningIcon"],
+[data-testid="stStatusWidgetRunningManIcon"] {
+  display: none !important;
+}
+[data-testid="stStatusWidget"] * {
+  animation: none !important;
+}
+
 /* Navbar */
 .portal-navbar {
   position: fixed;
@@ -194,7 +307,7 @@ header[data-testid="stHeader"],
   display: inline-flex;
   align-items: center;
   padding: 0.4rem 0.95rem;
-  border-radius: var(--radius-pill);
+  border-radius: 10px;
   text-decoration: none !important;
   font-weight: 500;
   font-size: 0.95rem;
@@ -212,38 +325,108 @@ header[data-testid="stHeader"],
   border-color: var(--green);
 }
 
-/* Boutons */
+/* Menu hamburger intégré dans la navbar */
+.portal-navbar .nav-menu {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  background: rgba(246, 242, 234, 0.96) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+  border-radius: 0 !important;
+}
+.portal-navbar .nav-menu > summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem 0.4rem;
+  border-radius: 0 !important;
+  background: rgba(246, 242, 234, 0.96) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+  color: var(--ink);
+  user-select: none;
+}
+.portal-navbar .nav-hamburger-dots {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.portal-navbar .nav-hamburger-dots span {
+  display: block;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  border: 0;
+}
+.portal-navbar .nav-dropdown a {
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.portal-navbar .nav-dropdown a:hover {
+  background: var(--green) !important;
+  color: #fff !important;
+}
+.portal-navbar .nav-menu > summary::-webkit-details-marker { display: none; }
+.portal-navbar .nav-dropdown {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  min-width: 11rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(31, 36, 33, 0.12);
+  padding: 0.4rem;
+  z-index: 1000002;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.portal-navbar .nav-dropdown a {
+  display: block;
+  padding: 0.45rem 0.75rem;
+  border-radius: var(--radius-sm);
+  text-decoration: none !important;
+  color: var(--ink) !important;
+  font-weight: 500;
+  font-size: 0.92rem;
+}
+.portal-navbar .nav-dropdown a:hover {
+  background: var(--paper);
+}
+.portal-navbar .nav-menu:not([open]) .nav-dropdown { display: none; }
+
+/* Boutons - même style que les boutons de sous-menu des vues */
 .stButton > button,
 [data-testid="baseButton-primary"],
 [data-testid="baseButton-secondary"] {
-  border-radius: var(--radius-pill);
+  border-radius: 10px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.88rem;
   font-weight: 500;
-  border: 1px solid var(--line);
+  line-height: 1.2;
+  border: 1px solid var(--line, #DDD7CB) !important;
+  background: var(--surface, #FFFFFF) !important;
+  color: var(--ink, #1F2421) !important;
   box-shadow: none;
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
 }
-.stButton > button[kind="primary"],
-[data-testid="baseButton-primary"] {
-  background: var(--green) !important;
-  color: #fff !important;
-  border-color: var(--green) !important;
-}
-.stButton > button[kind="primary"]:hover,
-[data-testid="baseButton-primary"]:hover {
-  background: #234a21 !important;
-  border-color: #234a21 !important;
-}
-.stButton > button[kind="secondary"],
-[data-testid="baseButton-secondary"],
-.stButton > button:not([kind="primary"]) {
-  background: var(--surface);
-  color: var(--ink);
-}
-.stButton > button[kind="secondary"]:hover,
+.stButton > button:hover,
+.stButton > button:focus-visible,
+[data-testid="baseButton-primary"]:hover,
+[data-testid="baseButton-primary"]:focus-visible,
 [data-testid="baseButton-secondary"]:hover,
-.stButton > button:not([kind="primary"]):hover {
-  border-color: #c9c1b2;
-  background: #fff;
+[data-testid="baseButton-secondary"]:focus-visible {
+  border-color: #c9c1b2 !important;
+  background: #ffffff !important;
+  color: var(--ink, #1F2421) !important;
 }
 
 /* Champs de formulaire */
@@ -277,7 +460,21 @@ details, [data-testid="stExpander"] {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  padding: 0.25rem 0.25rem;
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.6rem;
+  box-shadow: 0 1px 2px rgba(31, 36, 33, 0.04);
+}
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p {
+  line-height: 1.55;
+}
+[data-testid="stChatInput"] {
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: 0 4px 14px rgba(31, 36, 33, 0.08);
+}
+[data-testid="stChatInput"] textarea {
+  padding: 0.7rem 1rem;
 }
 
 /* Alertes */
@@ -314,6 +511,9 @@ hr { border-color: var(--line); }
 """,
         unsafe_allow_html=True,
     )
+    extra = _theme_css(theme_mode)
+    if extra:
+        st.markdown(extra, unsafe_allow_html=True)
 
 
 def _inject_menu_customizations(st: Any) -> None:
@@ -363,31 +563,8 @@ def _inject_menu_customizations(st: Any) -> None:
         } catch (e) { /* noop */ }
       }
 
-      // Ajouter Paramètres si absent
-      const existingParam = doc.querySelector('[data-testid="stMainMenuItem-customParametres"]');
-      if (!existingParam) {
-        let anchor = null;
-        doc.querySelectorAll('[data-testid="stMainMenu"] a, [data-testid="stMainMenu"] [role="menuitem"]').forEach(el => {
-          const txt = (el.innerText || el.textContent || '').trim();
-          if (/get help|aide|obtenir/i.test(txt) && !anchor) anchor = el;
-        });
-        if (!anchor) anchor = getHelp;
-        if (anchor && anchor.parentNode) {
-          const a = doc.createElement('a');
-          a.setAttribute('data-testid', 'stMainMenuItem-customParametres');
-          a.setAttribute('role', 'menuitem');
-          a.setAttribute('tabindex', '0');
-          a.href = '?vue=parametres';
-          a.textContent = 'Paramètres';
-          a.style.display = 'flex';
-          a.style.alignItems = 'center';
-          a.style.padding = '0.5rem 1rem';
-          a.style.textDecoration = 'none';
-          a.style.color = 'inherit';
-          a.style.cursor = 'pointer';
-          anchor.parentNode.insertBefore(a, anchor);
-        }
-      }
+      // Paramètres est accessible via le menu hamburger de la navbar ; ne pas
+      // dupliquer l'entrée dans le menu principal de Streamlit.
 
       // Traductions best-effort des libellés connus
       const translations = [
@@ -422,12 +599,41 @@ def _inject_menu_customizations(st: Any) -> None:
         pass
 
 
+def _inject_hamburger_outside_click(st: Any) -> None:
+    try:
+        from streamlit.components.v1 import html as components_html
+
+        components_html(
+            r"""
+<script>
+(function() {
+  const doc = window.parent && window.parent.document ? window.parent.document : document;
+  function closeOnOutside(e) {
+    doc.querySelectorAll('details.nav-menu[open]').forEach(d => {
+      if (!d.contains(e.target)) d.removeAttribute('open');
+    });
+  }
+  if (!doc.__hamburgerOutsideBound) {
+    doc.addEventListener('click', closeOnOutside, true);
+    doc.__hamburgerOutsideBound = true;
+  }
+})();
+</script>
+""",
+            height=0,
+            width=0,
+        )
+    except Exception:
+        pass
+
+
 def render_header(st: Any) -> str:
     session_state = st.session_state
     init_global_state(session_state)
     _sync_vue_from_query(st)
     _inject_global_styles(st)
     _inject_menu_customizations(st)
+    _inject_hamburger_outside_click(st)
     speciale = session_state.get("vue_speciale")
     if speciale in VUES_SPECIALES:
         return speciale
@@ -485,62 +691,95 @@ def render_settings_page(st: Any) -> list[InfoItem]:
     st.header("Paramètres")
     st.caption("Réglez ici les paramètres modifiables par l’utilisateur.")
 
-    # Langue
-    st.subheader("Langue")
+    st.subheader("Paramètres généraux")
+
     current_lang = session_state.get("langue", LANGUE_DEFAUT)
     if current_lang not in LANGUES:
         current_lang = LANGUE_DEFAUT
     langue = st.selectbox(
-        "Langue de l’interface et des réponses compatibles",
+        "Langue",
         options=list(LANGUES.keys()),
         index=list(LANGUES.keys()).index(current_lang),
         format_func=lambda c: LANGUES.get(c, c),
         key="param_langue",
+        help="Langue de l’interface et des réponses compatibles.",
     )
     session_state["langue"] = langue
 
-    # Thème
-    st.subheader("Apparence")
     current_theme = session_state.get("theme_mode", "systeme")
     if current_theme not in THEME_MODES:
         current_theme = "systeme"
-    theme_mode = st.radio(
-        "Mode d’affichage",
+    icons = {"systeme": "🖥️", "clair": "☀️", "sombre": "🌙"}
+    st.markdown(
+        """
+<style>
+.appearance-picker [data-testid="stRadio"] > div { gap: 0.6rem; }
+.appearance-picker [data-testid="stRadio"] [role="radiogroup"] { display: flex; gap: 0.75rem; }
+.appearance-picker [data-testid="stRadio"] label {
+  flex: 1; margin: 0 !important; padding: 0.85rem 1rem !important;
+  border: 1px solid var(--line); border-radius: 14px; background: var(--surface);
+  justify-content: center; transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+.appearance-picker [data-testid="stRadio"] label:hover { border-color: #c9c1b2; background: color-mix(in srgb, var(--surface) 92%, var(--paper)); }
+.appearance-picker [data-testid="stRadio"] label:has(input:checked) { border-color: var(--green); box-shadow: 0 0 0 2px color-mix(in srgb, var(--green) 22%, transparent); }
+.appearance-picker [data-testid="stRadio"] label > div:first-child { margin-right: 0.45rem; }
+.appearance-picker [data-testid="stRadio"] label p { font-size: 0.95rem; font-weight: 500; }
+</style>
+<div class="appearance-picker">
+""",
+        unsafe_allow_html=True,
+    )
+    choix_theme = st.radio(
+        "Apparence",
         options=list(THEME_MODES),
         index=list(THEME_MODES).index(current_theme),
-        format_func=lambda m: THEME_LABELS.get(m, m),
+        format_func=lambda m: f"{icons.get(m, '')}  {THEME_LABELS.get(m, m)}",
         horizontal=True,
         key="param_theme_mode",
     )
-    if theme_mode != session_state.get("theme_mode"):
-        session_state["theme_mode"] = theme_mode
-        try:
-            save_portal_settings({"theme_mode": theme_mode})
-        except Exception:
-            pass
-    st.caption(
-        "Préférence enregistrée (Système / Clair / Sombre). Le thème appliqué par Streamlit dépend "
-        "de la configuration de l’application (.streamlit/config.toml) et du menu d’affichage ; "
-        "selon l’environnement, le changement peut nécessiter de recharger l’application."
-    )
+    st.markdown("</div>", unsafe_allow_html=True)
+    session_state["theme_mode"] = choix_theme
+    st.caption("« Système » suit le réglage de votre appareil.")
 
-    # Finances / TVA
-    st.subheader("Chemins des pièces de TVA (Finances)")
+    st.subheader("RH")
+    st.caption("Chemin racine du dossier RH pour chaque établissement (création du dossier salarié à la validation).")
+    try:
+        from rh import onboarding as rh_onboarding
+
+        etabs_rh = rh_onboarding.etablissements_disponibles()
+    except Exception:
+        etabs_rh = []
+        rh_onboarding = None
+    settings = load_portal_settings()
+    rh_paths = dict(settings.get("rh_base_paths") or {})
+    updates_rh: dict[str, str] = {}
+    if not etabs_rh:
+        st.caption("Aucun établissement détecté dans RH-Onboarding.")
+    for etab in etabs_rh:
+        default_path = rh_onboarding.chemin_base_rh_defaut(etab) if rh_onboarding else ""
+        val = rh_paths.get(etab) or default_path
+        updates_rh[etab] = st.text_input(
+            f"Chemin racine RH — {etab}",
+            value=val,
+            key=f"cfg_rh_base_{etab}",
+        )
+
+    st.subheader("Finances")
     st.caption(
-        "Paramètres de synchronisation et de localisation des pièces, correspondant au fichier "
-        "`Finances/Finances-config.txt`."
+        "Paramètres de synchronisation et de localisation des pièces de TVA "
+        "(`Assistant-de-Gestion.config`)."
     )
     try:
         from finances import core as finances_core
-        config_path = Path(getattr(finances_core, "CONFIG_FILE", "Finances/Finances-config.txt"))
+        config_path = Path(getattr(finances_core, "CONFIG_FILE", "Assistant-de-Gestion.config"))
     except Exception:
-        config_path = Path("Finances/Finances-config.txt")
+        config_path = Path("Assistant-de-Gestion.config")
 
     original_lines, entries = read_finances_config(config_path)
     if not entries:
         entries = _default_finances_entries()
 
-    updates: dict[str, dict[str, str]] = {}
+    updates_fin: dict[str, dict[str, str]] = {}
     for etab in sorted(entries.keys()):
         data = entries[etab]
         with st.expander(etab, expanded=True):
@@ -552,27 +791,27 @@ def render_settings_page(st: Any) -> list[InfoItem]:
                 modes = [mode_val] + [m for m in modes if m != mode_val]
             mode = st.selectbox("Mode de synchronisation", options=modes, index=modes.index(mode_val), key=f"cfg_{etab}_mode")
             libelle = st.text_input("Libellé mail (objet)", value=data.get("libelle_mail", ""), key=f"cfg_{etab}_libelle")
-            updates[etab] = {"source": source, "cible": cible, "mode": mode, "libelle_mail": libelle}
+            updates_fin[etab] = {"source": source, "cible": cible, "mode": mode, "libelle_mail": libelle}
 
-    if st.button("Enregistrer les paramètres Finances", type="primary"):
+    if st.button("Enregistrer", type="primary", key="btn_enregistrer_parametres"):
+        erreurs = []
         try:
-            write_finances_config(config_path, updates, original_lines=original_lines)
-            st.success(f"Paramètres enregistrés dans `{config_path}`.")
+            save_portal_settings({"theme_mode": session_state.get("theme_mode", "systeme"), "rh_base_paths": updates_rh})
         except Exception as exc:
-            st.error(f"Impossible d’enregistrer les paramètres Finances : {exc}")
-
-    # retour
-    if st.button("Retour au portail"):
-        session_state["vue_speciale"] = None
+            erreurs.append(f"Paramètres généraux/RH : {exc}")
         try:
-            st.query_params["vue"] = session_state.get("vue_active", "rh")
-        except Exception:
-            pass
-        st.rerun()
+            write_finances_config(config_path, updates_fin, original_lines=original_lines)
+        except Exception as exc:
+            erreurs.append(f"Finances : {exc}")
+        if erreurs:
+            st.error(" ; ".join(erreurs))
+        else:
+            st.success("Paramètres enregistrés.")
+            st.rerun()
 
     infos = [
         InfoItem("param_langue", "Langue", LANGUES.get(session_state.get("langue", LANGUE_DEFAUT), session_state.get("langue", LANGUE_DEFAUT)), "Langue globale sélectionnée dans les paramètres."),
-        InfoItem("param_theme", "Mode d’affichage (préférence)", THEME_LABELS.get(session_state.get("theme_mode", "systeme"), session_state.get("theme_mode", "systeme")), "Préférence d’apparence enregistrée pour le portail."),
+        InfoItem("param_theme", "Mode d’affichage", THEME_LABELS.get(session_state.get("theme_mode", "systeme"), session_state.get("theme_mode", "systeme")), "Préférence d’apparence enregistrée pour le portail."),
         InfoItem("param_finances_config", "Fichier de configuration Finances", str(config_path), "Fichier des chemins et paramètres des pièces de TVA."),
     ]
     return infos
@@ -592,14 +831,6 @@ def render_aide_page(st: Any) -> list[InfoItem]:
         st.error(f"Impossible de charger l’aide depuis `{readme_path}` : {exc}")
         content = ""
 
-    if st.button("Retour au portail", key="aide_retour"):
-        session_state["vue_speciale"] = None
-        try:
-            st.query_params["vue"] = session_state.get("vue_active", "rh")
-        except Exception:
-            pass
-        st.rerun()
-
     return [
         InfoItem(
             "aide_source",
@@ -611,9 +842,15 @@ def render_aide_page(st: Any) -> list[InfoItem]:
 
 
 def render_navbar(st: Any) -> None:
-    """Affiche la barre de navigation principale, fixée en haut de l'écran."""
-    speciale = st.session_state.get("vue_speciale")
-    active_vue = st.session_state.get("vue_active", "rh")
+    """Affiche la barre de navigation principale, fixée en haut de l'écran.
+
+    Le menu hamburger (☰) est intégré dans la navbar, entre les modules,
+    et donne accès aux pages Paramètres et Aide.
+    """
+    session_state = st.session_state
+    init_global_state(session_state)
+    speciale = session_state.get("vue_speciale")
+    active_vue = session_state.get("vue_active", "rh")
     active_rh = "active" if speciale not in VUES_SPECIALES and active_vue == "rh" else ""
     active_fin = "active" if speciale not in VUES_SPECIALES and active_vue == "finances" else ""
     active_jur = "active" if speciale not in VUES_SPECIALES and active_vue == "juridique" else ""
@@ -622,6 +859,7 @@ def render_navbar(st: Any) -> None:
     logo_html = (
         f'<img class="brand-logo" src="{logo_src}" alt="HEE" />' if logo_src else ""
     )
+
     st.markdown(
         f"""
 <div class="portal-navbar" role="navigation" aria-label="Navigation principale">
@@ -630,6 +868,13 @@ def render_navbar(st: Any) -> None:
   <a class="nav-item {active_fin}" href="?vue=finances" target="_self">Finances</a>
   <a class="nav-item {active_jur}" href="?vue=juridique" target="_self">Juridique</a>
   <a class="nav-item {active_mar}" href="?vue=marketing" target="_self">Marketing</a>
+  <details class="nav-menu" style="margin-left:auto;">
+    <summary class="nav-hamburger" title="Menu" aria-label="Menu"><span class="nav-hamburger-dots" aria-hidden="true"><span></span><span></span><span></span></span></summary>
+    <div class="nav-dropdown">
+      <a href="?vue=parametres" target="_self">Paramètres</a>
+      <a href="?vue=aide" target="_self">Aide</a>
+    </div>
+  </details>
 </div>
 """,
         unsafe_allow_html=True,
@@ -680,12 +925,13 @@ def run_portail(
         ]
 
     vue_active = session_state.get("vue_active", "rh")
+    vue_labels = {"rh": "RH", "finances": "Finances", "juridique": "Juridique", "marketing": "Marketing"}
     if vue == VUE_PARAMETRES:
         vue_label = "Paramètres"
     elif vue == VUE_AIDE:
         vue_label = "Aide"
     else:
-        vue_label = "RH" if vue_active == "rh" else "Finances"
+        vue_label = vue_labels.get(vue_active, vue_active.capitalize())
     langue_code = session_state.get("langue", LANGUE_DEFAUT)
     infos_globales = [
         InfoItem(
@@ -704,7 +950,12 @@ def run_portail(
 
     with right_col:
         is_qr_view = vue not in VUES_SPECIALES and vue in VUES
-        if is_qr_view:
+        rh_onboarding = vue == "rh" and session_state.get("rh_sous_vue") == "Onboarding"
+        masquer_pieces_jointes = (
+            vue == "finances"
+            and session_state.get("fin_sous_vue") == "Déclaration de TVA"
+        ) or rh_onboarding
+        if is_qr_view and not masquer_pieces_jointes:
             try:
                 from shared.qr_view import render_pieces_jointes as _render_pj
 
@@ -724,4 +975,12 @@ def run_portail(
                     st.divider()
             except Exception:
                 pass
+        if rh_onboarding:
+            from rh import onboarding as _rh_onboarding
+
+            data = session_state.get("rh_onb_data") or {}
+            recap = _rh_onboarding.recapitulatif(data)
+            st.subheader("Récapitulatif")
+            st.code(recap, language="text")
+            st.divider()
         _render_info_items(st, collect_footer_infos(infos_globales, infos_vue), title="Informations", show_divider=False)

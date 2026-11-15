@@ -131,23 +131,32 @@ def render_qr(
     messages = session_state.get(messages_key, [])
 
     # --- Prompt d'introduction ---
+    if cfg.id == "marketing":
+        st_mod.caption(
+            "Posez vos questions marketing : les réponses sont fondées sur les documents indexés, avec leurs sources."
+        )
+    elif cfg.id == "juridique":
+        st_mod.caption(
+            "Posez vos questions juridiques : les réponses sont fondées sur les documents indexés, avec leurs sources."
+        )
+    elif cfg.id == "rh":
+        st_mod.caption(
+            "Posez vos questions RH : les réponses sont fondées sur les documents indexés, avec leurs sources."
+        )
+    else:
+        st_mod.caption(
+            f"Posez vos questions {cfg.label} (droit, convention, communication...) : "
+            "les réponses sont fondées sur les documents indexés, avec leurs sources."
+        )
     st_mod.caption(
-        f"Posez vos questions {cfg.label.lower()} (droit, convention, communicattion...) : "
-        "les reponses sont fondees sur les documents indexes, avec leurs sources."
-    )
-    st_mod.caption(
-        "⚠️ Reponse generee automatiquement : verifiez toujours les sources "
-        "affichees avant toute decision."
-    )
-
-    st_mod.caption(
-        "Formats acceptés pour les fichiers joints : PDF, TXT, Markdown "
-        "(lisibles par le LLM/Ollama)."
+        "⚠️  Réponse génerée automatiquement : vérifiez toujours les sources "
+        "affichées avant toute décision."
     )
 
     # --- Saisie utilisateur (en haut) ---
+    module_name = cfg.label if cfg.label.isupper() else cfg.label.lower()
     saisie = st_mod.chat_input(
-        f"Posez votre question {cfg.label.lower()}...",
+        f"Posez votre question {module_name}...",
         accept_file="multiple",
         file_type=["pdf", "txt", "md"],
         max_upload_size=20,
@@ -236,9 +245,9 @@ def render_qr(
     # Mettre à jour l'état de la session
     session_state[messages_key] = messages
 
-    # --- Affichage de l'historique (ordre chronologique décroissant) ---
+    # --- Affichage de l'historique (ordre chronologique croissant) ---
     # Avatars Streamlit natifs (icônes Material) : humain / robot
-    for message in reversed(messages):
+    for message in messages:
         role = message.get("role", "user")
         avatar = role if role in {"user", "assistant"} else "user"
         content = message.get("content", "")
@@ -256,6 +265,17 @@ def render_qr(
                             for extrait in source.get("extraits", []):
                                 txt = extrait if len(extrait) <= 600 else extrait[:600] + "..."
                                 st_mod.caption(txt)
+
+    # Auto-scroll vers le bas pour afficher la dernière question/réponse
+    try:
+        from streamlit.components.v1 import html as _st_html
+
+        _st_html(
+            "<script>const m=window.parent.document.querySelector('section.main'); if(m){m.scrollTo(0,m.scrollHeight);}</script>",
+            height=0,
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
     # Retourner les infos footer
     return collect_qr_infos(session_state, cfg, langue)
